@@ -1,60 +1,97 @@
 #include "raylib.h"
 #include <math.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #define MAX_INT32 2147483647
 
+// References
+// * One more line
+// * Jetpack joyride
+// * Crossy road
+//
+// Ideas
+// * What if there are black holes, and if you get sucked into them, you start
+// going backwards and the colors are inverted. Black holes have strong gravity
+// and maybe some Schwarzschild radius?
+//
 // Planning
-// TODO: You can only latch onto an obstacle if you have a clear path for orbit
-// based on your trajectory.
+// angle relative to the obstacle
+// [] Add barriers on left and ride
+// [] Have the camera take some of the horizontal movement
 
 typedef struct {
-    int x;
-    int y;
-    int rad;
+    float x;
+    float y;
+    float rad;
 } Obs;
 
+typedef struct {
+    float x;
+    float y;
+    float vx;
+    float vy;
+    float rad;
+} Hero;
+
 Obs newObs(int x, int y, int rad) {
-    Obs obs = {x, y, rad};
+    Obs obs = {
+        .x = x,
+        .y = y,
+        .rad = rad,
+    };
     return obs;
 }
 
 int randIntBetween(int low, int high) { return (rand() % (high - low)) + low; }
 
+int fps = 120;
+
 int main() {
-    SetTargetFPS(120);
+    SetTargetFPS(fps);
     InitWindow(500, 1000, "onemoreline");
 
+    // TODO: width and height should be dynamic or locked
     int width = GetScreenWidth();
     int height = GetScreenHeight();
-    int speed = 5;
+    float speed = 600.0f;
 
-    int charRadius = 20;
-    int charX = width / 2;
-    int charY = height - 2 * 100;
-    int charSpeedX = 0;
-    int charSpeedY = speed;
-
-    // Generate obstacles
+    // Settings
     int numObs = 20;
     Obs obs[numObs];
     int minObsRadius = 10;
     int maxObsRadius = 40;
     // For now, hardcode the y distance between each obstacle
     int obsYDiff = 400;
-    int startingObsY = height / 2;
+    int startingObsY = 0;
 
-    int spaceDown = 0;
-    int shouldOrbit = 0;
-    float orbitRadius = 0;
+    // camera should make up this proportion of the left-right movement
+    float horizontalCameraMovement = 0.15f;
+
+    // State
+    bool spaceDown = false;
+    bool isOrbiting = false;
+    float orbitRadius = 0.0f;
     int closestObsForOrbit = 0;
-    int orbitFrames = 0;
-    float orbitInitialAngle = 0;
+    float orbitTime = 0.0f;
+    float orbitInitialAngle = 0.0f;
     int orbitDir = -1; // 1 is clockwise, -1 is counterclockwise
+    float orbitYOffset = 0.0f;
+    float orbitXOffset = 0.0f;
 
-    int gameOver = 0;
+    bool gameOver = false;
 
+    // Entities
+    Hero hero = {
+        .x = (float)width / 2,
+        .y = (float)height * 0.65,
+        .vx = 0,
+        .vy = speed,
+        .rad = 20,
+    };
+
+    // Generate obstacles
     for (int i = 0; i < 20; i++) {
         int obsRad = randIntBetween(minObsRadius, maxObsRadius);
         int minObsX = obsRad;
@@ -65,127 +102,162 @@ int main() {
     }
 
     while (!WindowShouldClose() && !gameOver) {
+        float dt = GetFrameTime();
+
         BeginDrawing();
         ClearBackground(BLACK);
 
-        // This happens if spacebar is first clicked
+        // The moment the spacebar is clicked
         if (!spaceDown && IsKeyDown(KEY_SPACE)) {
-            spaceDown = 1;
+            spaceDown = true;
+        }
 
+        // Spacebar is let go
+        if (spaceDown && !IsKeyDown(KEY_SPACE)) {
+            spaceDown = 0;
+            isOrbiting = false;
+        }
+
+        // If space is down, and we haven't started orbiting, do the necessary
+        // processing to check if we should go into an orbiting state
+        if (spaceDown && !isOrbiting) {
             // We need to record the distance from the closest obs
-            // TODO: Only look at the currently visible obs
+            // TODO: Only look at the currently visible obs for performance
             int closestDistSq = MAX_INT32;
             for (int i = 0; i < numObs; i++) {
                 Obs currObs = obs[i];
                 if (currObs.y > height || currObs.y < 0) {
                     continue;
                 }
-                int distSquared = (currObs.x - charX) * (currObs.x - charX) +
-                                  (currObs.y - charY) * (currObs.y - charY);
+                int distSquared = (currObs.x - hero.x) * (currObs.x - hero.x) +
+                                  (currObs.y - hero.y) * (currObs.y - hero.y);
                 if (distSquared < closestDistSq) {
                     closestObsForOrbit = i;
                     closestDistSq = distSquared;
                 }
             }
-            // If there is something to orbit, then set shouldOrbit to true
+            // If there is something to orbit, handle
             if (closestDistSq != MAX_INT32) {
                 Obs closestObs = obs[closestObsForOrbit];
-                shouldOrbit = 1;
                 orbitRadius = sqrtf(closestDistSq);
 
-                // set initial angle
-                float dy = (float)charY - (float)closestObs.y;
-                float dx = (float)charX - (float)closestObs.x;
-                orbitInitialAngle = atan2f(dy, dx);
+                float dy = (float)hero.y - (float)closestObs.y;
+                float dx = (float)hero.x - (float)closestObs.x;
+                float cross = dx * -hero.vy - dy * hero.vx; // cross product
+                float speedSq = hero.vx * hero.vx + hero.vy * hero.vy;
+                float collideDistSq = (cross * cross) / speedSq;
+                float combinedRad = hero.rad + closestObs.rad;
 
-                // This calculates how we can get a "swingin on a pole effect"
-                // For example, if character is going upwards and towards the
-                // bottom left of an obstacle, then on spacebar, it will orbit
-                // clockwise
-                float cross = dx * -(float)charSpeedY - dy * (float)charSpeedX;
-                if (cross >= 0) {
-                    orbitDir = 1;
-                } else {
-                    orbitDir = -1;
+                // We should only go into orbit if the hero is not on a
+                // trajectory to collide with this obj
+                if (collideDistSq >= combinedRad * combinedRad) {
+                    // We should now be in orbit
+                    isOrbiting = true;
+
+                    // Calculate the orbit initial angle
+                    orbitInitialAngle = atan2f(dy, dx);
+
+                    // This calculates how we can get a "swingin on a pole
+                    // effect" For example, if character is going upwards and
+                    // towards the bottom left of an obstacle, then on spacebar,
+                    // it will orbit clockwise
+                    if (cross >= 0) {
+                        orbitDir = 1;
+                    } else {
+                        orbitDir = -1;
+                    }
+
+                    // set orbit frames
+                    orbitTime = 0.0f;
                 }
-
-                // set orbit frames
-                orbitFrames = 0;
             }
         }
 
-        // Spacebar is let go
-        if (spaceDown && !IsKeyDown(KEY_SPACE)) {
-            spaceDown = 0;
-            shouldOrbit = false;
-            // we should adjust the char x and y speed based on the current
-            // angle
-        }
-
-        // Update charX and char Y if should orbit
-        if (shouldOrbit) {
+        // Handle orbiting specific logic
+        if (isOrbiting) {
             Obs closestObs = obs[closestObsForOrbit];
-            // update charX and charY
+            // update hero.x and hero.y
             // we want to increase the arc by speed, so we should
             // increase the angle by speed / orbit radius every frame
+            float angularVelocity = speed / orbitRadius;
+            float prevAngle = orbitInitialAngle +
+                              orbitDir * angularVelocity * (orbitTime - dt);
             float currAngle =
-                orbitInitialAngle +
-                orbitDir * (float)orbitFrames * (float)speed / orbitRadius;
+                orbitInitialAngle + orbitDir * angularVelocity * orbitTime;
 
             // These are the coordinates relative to the closest object
             float relX = orbitRadius * cosf(currAngle);
             float relY = orbitRadius * sinf(currAngle);
 
-            // Update charX and charY (coordinates relative to the screen)
-            charX = closestObs.x + relX;
-            charY = closestObs.y + relY;
+            // Update hero.x and hero.y (coordinates relative to the screen)
+            hero.x = closestObs.x + relX;
+            hero.y = closestObs.y + relY;
+            
+            if (orbitTime - dt > 0) {
+                // record how much the screen should move to account for the y
+                // difference
+                float prevRelY = orbitRadius * sinf(prevAngle);
+                orbitYOffset = prevRelY - relY;
 
-            // Update charSpeedX and charSpeecY based on its current angle
-            charSpeedX = -orbitDir * speed * sinf(currAngle);
-            charSpeedY = -1 * orbitDir * speed * cosf(currAngle);
+                float prevRelX = orbitRadius * cosf(prevAngle);
+                orbitXOffset = prevRelX - relX;
+                hero.x -= (1.0f - horizontalCameraMovement) * orbitXOffset;
+            }
+
+            // Update hero.vx and charSpeecY based on its current angle
+            hero.vx = -orbitDir * speed * sinf(currAngle);
+            hero.vy = -1 * orbitDir * speed * cosf(currAngle);
 
             // Now increment orbitFrames
-            orbitFrames++;
+            orbitTime += dt;
 
             // Draw radius of orbit
-            DrawLine(charX, charY, closestObs.x, closestObs.y, RED);
+            DrawLine(hero.x, hero.y, closestObs.x, closestObs.y, RED);
         }
 
+        // Handle not-orbiting specific logic
+        if (!isOrbiting) {
+            // It's game over if we are not orbiting and we go out of bounds
+            if (hero.x - hero.rad >= width || hero.x + hero.rad <= 0) {
+                gameOver = true;
+            }
+
+            // Subtract the proportion of the hero x to create horizontal camera movement
+            hero.x += (1.0f - horizontalCameraMovement) * (hero.vx * dt);
+        }
+
+        // Draw the scene
+
         // Draw character
-        DrawCircle(charX, charY, charRadius, WHITE);
+        DrawCircle(hero.x, hero.y, hero.rad, WHITE);
 
         // Draw the obstacles
         for (int i = 0; i < numObs; i++) {
             Obs currObs = obs[i];
 
             // While we are looping, check that char is colliding with obs
-            float distX = (float)charX - (float)currObs.x;
-            float distY = (float)charY - (float)currObs.y;
-            float dist = sqrt((distX * distX) + (distY * distY));
-            float radiiSum = charRadius + currObs.rad;
-            if (dist <= radiiSum) {
-                gameOver = 1;
+            float distX = (float)hero.x - (float)currObs.x;
+            float distY = (float)hero.y - (float)currObs.y;
+
+            float distSquared = (distX * distX) + (distY * distY);
+            float radiiSumSquared =
+                (hero.rad + currObs.rad) * (hero.rad + currObs.rad);
+            if (distSquared <= radiiSumSquared) {
+                gameOver = true;
             }
 
             DrawCircle(currObs.x, currObs.y, currObs.rad, WHITE);
-            // Only move stuff downwards IF we are not orbiting
-            if (!shouldOrbit) {
-                obs[i].y += charSpeedY;
+            // If orbiting, move stuff downwards
+            if (!isOrbiting) {
+                obs[i].y += hero.vy * dt;
+                obs[i].x -= horizontalCameraMovement * (hero.vx * dt); 
+            } else { // otherwise, move the "camera" y based on the orbit
+                     // movement
+                obs[i].y += orbitYOffset;
+                obs[i].x += horizontalCameraMovement * orbitXOffset;
             }
         }
 
-        // If we are not orbiting, then charX updates linearly
-        if (!shouldOrbit) {
-
-            // It's game over if we are not orbiting and we go out of bounds
-            if (charX - charRadius >= width || charX + charRadius <= 0) {
-                gameOver = 1;
-            }
-
-            charX += charSpeedX;
-        }
-
-        // Draw obstacles
         EndDrawing();
     }
     return 0;
