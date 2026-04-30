@@ -1,0 +1,17 @@
+[
+  {
+    "file": "main.c",
+    "arguments": [
+      "/usr/bin/clang",
+      "-std=c99",
+      "-Wall",
+      "-Werror",
+      "main.c",
+      "-o",
+      "main",
+      "-I/opt/homebrew/include"
+    ],
+    "directory": "/Users/aslan/personal/onemoreline",
+    "output": "main"
+  }
+]

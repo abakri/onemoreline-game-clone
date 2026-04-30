@@ -1,29 +1,24 @@
 #include "math.h"
-#include "raylib.h"
+#include <SDL3/SDL.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #define MAX_INT32 2147483647
+#define DEBUG 0
 #define NUM_OBS 20
 
-// References
-// * One more line
-// * Jetpack joyride
-// * Crossy road
-//
-// Ideas
-// * What if there are black holes, and if you get sucked into them, you start
-// going backwards and the colors are inverted. Black holes have strong gravity
-// and maybe some Schwarzschild radius?
-//
-// TODO
-// * Add barriers on left and ride (?) Or maybe we want horizontal movement...
-// * Make game units abstract, like meters
-//
-// Eventually
-// * Build a game engine using bgfx. See bgfx hello world in c
-// (https://github.com/bkaradzic/bgfx/blob/master/examples/25-c99/helloworld.c)
+// Function to draw a circle in SDL
+void DrawFilledCircle(SDL_Renderer *renderer, int xC, int yC, int radius) {
+    for (int y = -radius; y <= radius; y++) {
+        for (int x = -radius; x <= radius; x++) {
+            if (x * x + y * y <= radius * radius) {
+                SDL_RenderPoint(renderer, xC + x, yC + y);
+            }
+        }
+    }
+}
 
 typedef struct {
     float x;
@@ -34,16 +29,16 @@ typedef struct {
 typedef struct {
     float x;
     float y;
+    float rad;
+} Blackhole;
+
+typedef struct {
+    float x;
+    float y;
     float vx;
     float vy;
     float rad;
 } Hero;
-
-typedef struct {
-    Color hero;
-    Color obs;
-    Color bg;
-} Colors;
 
 typedef struct {
     int numObs;
@@ -55,8 +50,6 @@ typedef struct {
     int height;
     float speed;
     float horizontalCameraMovement;
-    Colors colorsNormal;
-    Colors colorsBlackhole;
 } GameSettings;
 
 typedef struct {
@@ -89,7 +82,6 @@ Obs newObs(int x, int y, int rad) {
 }
 
 int randIntBetween(int low, int high) { return (rand() % (high - low)) + low; }
-int fps = 120;
 
 GameState newGameState() {
     GameState state = {
@@ -117,23 +109,22 @@ GameSettings newGameSettings(int width, int height) {
         .horizontalCameraMovement = 0.15f,
         .width = width,
         .height = height,
-        .speed = 600.0f,
-        .colorsNormal = {.hero = WHITE, .obs = WHITE, .bg = BLACK},
-        .colorsBlackhole = {.hero = BLACK, .obs = BLACK, .bg = WHITE}};
+        .speed = 1000.0f,
+    };
 
     return settings;
 }
 
 void processGame(GameSettings *settings, GameState *state, Hero *hero,
-                 Obs obs[], float dt) {
+                 Obs obs[], float dt, bool spaceKeyPressed) {
     // The moment the spacebar is clicked
-    if (!state->spaceDown && IsKeyDown(KEY_SPACE)) {
+    if (!state->spaceDown && spaceKeyPressed) {
         state->spaceDown = true;
     }
 
     // Spacebar is let go
-    if (state->spaceDown && !IsKeyDown(KEY_SPACE)) {
-        state->spaceDown = 0;
+    if (state->spaceDown && !spaceKeyPressed) {
+        state->spaceDown = false;
         state->isOrbiting = false;
     }
 
@@ -164,9 +155,6 @@ void processGame(GameSettings *settings, GameState *state, Hero *hero,
             float dx = (float)hero->x - (float)closestObs.x;
             float cross = dx * -(hero->vy) - dy * hero->vx; // cross product
             float dot = dx * hero->vx + dy * -(hero->vy);
-            // float speedSq = hero->vx * hero->vx + hero->vy * hero->vy;
-            // float collideDistSq = (cross * cross) / speedSq;
-            // float combinedRad = hero->rad + closestObs.rad;
 
             // We should only go into orbit if the hero is not on a
             // trajectory to collide with this obj
@@ -265,24 +253,20 @@ void processGame(GameSettings *settings, GameState *state, Hero *hero,
     }
 }
 
-void renderGame(GameState *state, GameSettings *settings, Hero *hero,
-                Obs obs[]) {
+void renderGame(SDL_Renderer *renderer, GameState *state,
+                GameSettings *settings, Hero *hero, Obs obs[]) {
     // TODO: Extract this out when we support black holes
-    bool blackhole = false;
-
-    BeginDrawing();
-    ClearBackground(blackhole ? settings->colorsBlackhole.bg
-                              : settings->colorsNormal.bg);
+    // bool blackhole = false;
 
     // Draw character
-    DrawCircle(hero->x, hero->y, hero->rad,
-               blackhole ? settings->colorsBlackhole.hero
-                         : settings->colorsNormal.hero);
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // WHITE
+    DrawFilledCircle(renderer, hero->x, hero->y, hero->rad);
 
     // Draw line to signal orbit
     Obs closestObs = obs[state->closestObsForOrbit];
     if (state->spaceDown) {
-        DrawLine(hero->x, hero->y, closestObs.x, closestObs.y, RED);
+        SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // RED
+        SDL_RenderLine(renderer, hero->x, hero->y, closestObs.x, closestObs.y);
     }
 
     // Draw the obstacles
@@ -299,26 +283,38 @@ void renderGame(GameState *state, GameSettings *settings, Hero *hero,
         if (distSquared <= radiiSumSquared) {
             state->gameOver = true;
         }
-        DrawCircle(currObs.x, currObs.y, currObs.rad,
-                   blackhole ? settings->colorsBlackhole.obs
-                             : settings->colorsNormal.obs);
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // WHITE
+        DrawFilledCircle(renderer, currObs.x, currObs.y, currObs.rad);
     }
 
-    // Draw the fixed forward progress on the top right as an int
-    int forwardProgressAsInt = state->forwardProgressTravelled;
-    DrawText(TextFormat("%i", forwardProgressAsInt), settings->width - 70, 20,
-             20, blackhole ? BLACK : WHITE);
+    SDL_RenderPresent(renderer);
 
-    EndDrawing();
+    // Draw the fixed forward progress on the top right as an int
+    // int forwardProgressAsInt = state->forwardProgressTravelled;
+    // char str[12];
+    // SDL_RenderDebugText(renderer, settings->width - 70, 20, sprintf(str,
+    // "%d", forwardProgressAsInt));
 }
 
 int main() {
-    SetTargetFPS(fps);
-    InitWindow(500, 1000, "onemoreline");
+    if (!SDL_Init(SDL_INIT_VIDEO)) {
+        SDL_Log("SDL_Init failed: %s", SDL_GetError());
+        return 1;
+    }
 
-    // TODO: width and height should be dynamic or locked
-    int width = GetScreenWidth();
-    int height = GetScreenHeight();
+    SDL_Renderer *renderer = NULL;
+    SDL_Window *window = NULL;
+
+    int width = 500;
+    int height = 1000;
+
+    if (!SDL_CreateWindowAndRenderer("OML Clone", width, height, 0, &window,
+                                     &renderer)) {
+        SDL_Log("SDL_Init failed: %s", SDL_GetError());
+        return 1;
+    };
+
+    SDL_RaiseWindow(window);
 
     // Init game
     GameSettings settings = newGameSettings(width, height);
@@ -348,12 +344,55 @@ int main() {
         entities.obs[i] = newObs(obsX, obsY, obsRad);
     }
 
-    while (!WindowShouldClose() && !state.gameOver) {
-        float dt = GetFrameTime();
-        processGame(&settings, &state, &hero, entities.obs, dt);
+    float targetFps = 120;
+    int quit = 0;
+    SDL_Event event;
+    uint64_t frameEnd = SDL_GetTicks();
+    bool spacePressed = false;
+    while (!quit && !state.gameOver) {
+        // INITIALIZE FRAME
+        uint64_t frameStart = SDL_GetTicks();
 
-        renderGame(&state, &settings, &hero, entities.obs);
+        // dt is the amount of seconds since the last frame
+        float dt = (float)(frameStart - frameEnd) / 1000.0f;
+
+        // Poll events
+        while (SDL_PollEvent(&event)) {
+            switch (event.type) {
+            case SDL_EVENT_QUIT:
+                quit = 1;
+                break;
+            case SDL_EVENT_KEY_DOWN:
+                spacePressed = true;
+                break;
+            case SDL_EVENT_KEY_UP:
+                spacePressed = false;
+                break;
+            }
+        }
+
+        // ------- HANDLE GAME AND RENDER GRAPHICS -------
+        // Black background
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+        SDL_RenderClear(renderer);
+        processGame(&settings, &state, &hero, entities.obs, dt, spacePressed);
+        renderGame(renderer, &state, &settings, &hero, entities.obs);
+
+        // ------ END GAME AND RENDERING -------
+        // End of frame processing
+        // ms since start of frame is frameEnd - frameStart
+        frameEnd = SDL_GetTicks();
+
+        // now to hit our target fps we should sleep for (1000/targetFps) -
+        // (frameEnd - frameStart)
+        int toWait = (1000.0f / targetFps) - (frameEnd - frameStart);
+        if (toWait > 0) {
+            SDL_Delay(toWait);
+        }
     }
 
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+    SDL_Quit();
     return 0;
 }
