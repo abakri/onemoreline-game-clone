@@ -96,7 +96,6 @@ GameState newGameState() {
         .gameOver = false,
         .spaceDown = false,
         .isOrbiting = false,
-        .pendingOrbit = false,
         .closestObsForOrbit = 0.0f,
         .orbitDir = -1,
         .orbitRadius = 0.0f,
@@ -164,14 +163,14 @@ void processGame(GameSettings *settings, GameState *state, Hero *hero,
             float dy = (float)hero->y - (float)closestObs.y;
             float dx = (float)hero->x - (float)closestObs.x;
             float cross = dx * -(hero->vy) - dy * hero->vx; // cross product
-            printf("%f\n", cross);
-            float speedSq = hero->vx * hero->vx + hero->vy * hero->vy;
-            float collideDistSq = (cross * cross) / speedSq;
-            float combinedRad = hero->rad + closestObs.rad;
+            float dot = dx * hero->vx + dy * -(hero->vy);
+            // float speedSq = hero->vx * hero->vx + hero->vy * hero->vy;
+            // float collideDistSq = (cross * cross) / speedSq;
+            // float combinedRad = hero->rad + closestObs.rad;
 
             // We should only go into orbit if the hero is not on a
             // trajectory to collide with this obj
-            if (collideDistSq >= combinedRad * combinedRad) {
+            if (dot >= 0) {
                 // We should now be in orbit
                 state->isOrbiting = true;
 
@@ -231,9 +230,6 @@ void processGame(GameSettings *settings, GameState *state, Hero *hero,
 
         // Now increment orbitFrames
         state->orbitTime += dt;
-
-        // Draw radius of orbit
-        DrawLine(hero->x, hero->y, closestObs.x, closestObs.y, RED);
     }
 
     // Handle not-orbiting specific logic
@@ -272,12 +268,22 @@ void processGame(GameSettings *settings, GameState *state, Hero *hero,
 void renderGame(GameState *state, GameSettings *settings, Hero *hero,
                 Obs obs[]) {
     // TODO: Extract this out when we support black holes
-    bool blackhole = true;
+    bool blackhole = false;
+
+    BeginDrawing();
+    ClearBackground(blackhole ? settings->colorsBlackhole.bg
+                              : settings->colorsNormal.bg);
 
     // Draw character
     DrawCircle(hero->x, hero->y, hero->rad,
-               !blackhole ? settings->colorsNormal.hero
-                          : settings->colorsBlackhole.hero);
+               blackhole ? settings->colorsBlackhole.hero
+                         : settings->colorsNormal.hero);
+
+    // Draw line to signal orbit
+    Obs closestObs = obs[state->closestObsForOrbit];
+    if (state->spaceDown) {
+        DrawLine(hero->x, hero->y, closestObs.x, closestObs.y, RED);
+    }
 
     // Draw the obstacles
     for (int i = 0; i < NUM_OBS; i++) {
@@ -294,14 +300,16 @@ void renderGame(GameState *state, GameSettings *settings, Hero *hero,
             state->gameOver = true;
         }
         DrawCircle(currObs.x, currObs.y, currObs.rad,
-                   !blackhole ? settings->colorsNormal.obs
-                              : settings->colorsBlackhole.obs);
+                   blackhole ? settings->colorsBlackhole.obs
+                             : settings->colorsNormal.obs);
     }
 
     // Draw the fixed forward progress on the top right as an int
     int forwardProgressAsInt = state->forwardProgressTravelled;
     DrawText(TextFormat("%i", forwardProgressAsInt), settings->width - 70, 20,
              20, blackhole ? BLACK : WHITE);
+
+    EndDrawing();
 }
 
 int main() {
@@ -322,7 +330,7 @@ int main() {
         .y = (float)height * 0.65,
         .vx = 0,
         .vy = settings.speed,
-        .rad = 20,
+        .rad = 15,
     };
 
     // Generate obstacles
@@ -344,12 +352,7 @@ int main() {
         float dt = GetFrameTime();
         processGame(&settings, &state, &hero, entities.obs, dt);
 
-        BeginDrawing();
-        ClearBackground(settings.colorsBlackhole.bg);
-
         renderGame(&state, &settings, &hero, entities.obs);
-
-        EndDrawing();
     }
 
     return 0;
