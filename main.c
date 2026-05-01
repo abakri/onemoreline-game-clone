@@ -1,13 +1,14 @@
-#include "math.h"
-#include <SDL3/SDL.h>
-#include <stdbool.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include "types.h"
 
-#define MAX_INT32 2147483647
-#define DEBUG 0
+#include "physics.c"
+#include <SDL3/SDL.h>
+
 #define NUM_OBS 20
+
+// TODO
+// * Figure out why the orbiting is so fast now. Notice that the player drifts
+// upwards, meaning that the camera is not adjusting enough (player is moving
+// too fast). This drift will be bad in the long run.
 
 // Function to draw a circle in SDL
 void DrawFilledCircle(SDL_Renderer *renderer, int xC, int yC, int radius) {
@@ -57,14 +58,11 @@ typedef struct {
     bool spaceDown;
     bool isOrbiting;
     int closestObsForOrbit;
-    int orbitDir; // 1 is clockwise, -1 is counterclockwise
-    float orbitRadius;
-    float orbitTime;
-    float orbitInitialAngle;
-    float orbitYOffset;
-    float orbitXOffset;
+    float orbitYChangeSinceLastFrame;
+    float orbitXChangeSinceLastFrame;
     float forwardProgressTravelled;
     Hero hero;
+    OrbitData currOrbit;
 } GameState;
 
 typedef struct {
@@ -89,13 +87,10 @@ GameState newGameState() {
         .spaceDown = false,
         .isOrbiting = false,
         .closestObsForOrbit = 0.0f,
-        .orbitDir = -1,
-        .orbitRadius = 0.0f,
-        .orbitTime = 0.0f,
-        .orbitInitialAngle = 0.0f,
-        .orbitYOffset = 0.0f,
-        .orbitXOffset = 0.0f,
+        .orbitYChangeSinceLastFrame = 0.0f,
+        .orbitXChangeSinceLastFrame = 0.0f,
         .forwardProgressTravelled = 0.0f,
+        .currOrbit = newOrbitData(),
     };
     return state;
 }
@@ -116,7 +111,7 @@ GameSettings newGameSettings(int width, int height) {
 }
 
 void processGame(GameSettings *settings, GameState *state, Hero *hero,
-                 Obs obs[], float dt, bool spaceKeyPressed) {
+                 Obs obs[], float dt, bool spaceKeyPressed, int time) {
     // The moment the spacebar is clicked
     if (!state->spaceDown && spaceKeyPressed) {
         state->spaceDown = true;
@@ -149,7 +144,7 @@ void processGame(GameSettings *settings, GameState *state, Hero *hero,
         // If there is something to orbit, handle
         if (closestDistSq != MAX_INT32) {
             Obs closestObs = obs[state->closestObsForOrbit];
-            state->orbitRadius = sqrtf(closestDistSq);
+            state->currOrbit.radius = sqrtf(closestDistSq);
 
             float dy = (float)hero->y - (float)closestObs.y;
             float dx = (float)hero->x - (float)closestObs.x;
@@ -162,21 +157,11 @@ void processGame(GameSettings *settings, GameState *state, Hero *hero,
                 // We should now be in orbit
                 state->isOrbiting = true;
 
-                // Calculate the orbit initial angle
-                state->orbitInitialAngle = atan2f(dy, dx);
-
-                // This calculates how we can get a "swingin on a pole
-                // effect" For example, if character is going upwards and
-                // towards the bottom left of an obstacle, then on spacebar,
-                // it will orbit clockwise
-                if (cross >= 0) {
-                    state->orbitDir = 1;
-                } else {
-                    state->orbitDir = -1;
-                }
-
-                // set orbit frames
-                state->orbitTime = 0.0f;
+                // Update current orbit
+                state->currOrbit.startAngle = atan2f(dy, dx);
+                state->currOrbit.startTime = time;
+                state->currOrbit.radius = sqrt(closestDistSq);
+                state->currOrbit.direction = cross >= 0 ? 1 : -1;
             }
         }
     }
@@ -184,19 +169,17 @@ void processGame(GameSettings *settings, GameState *state, Hero *hero,
     // Handle orbiting specific logic
     if (state->isOrbiting) {
         Obs closestObs = obs[state->closestObsForOrbit];
-        // update hero.x and hero.y
-        // we want to increase the arc by speed, so we should
-        // increase the angle by speed / orbit radius every frame
-        float angularVelocity = settings->speed / state->orbitRadius;
-        float prevAngle =
-            state->orbitInitialAngle +
-            state->orbitDir * angularVelocity * (state->orbitTime - dt);
-        float currAngle = state->orbitInitialAngle +
-                          state->orbitDir * angularVelocity * state->orbitTime;
 
+        // Update hero.x and hero.y
         // These are the coordinates relative to the closest object
-        float relX = state->orbitRadius * cosf(currAngle);
-        float relY = state->orbitRadius * sinf(currAngle);
+        float currAngle = Orbit_CalculateAngle(
+            settings->speed, state->currOrbit.radius,
+            state->currOrbit.startAngle, state->currOrbit.direction,
+            (float)(time - state->currOrbit.startTime) / 1100.0f);
+        Point currRelativePos = Orbit_CalculatePositionRelativeToTarget(
+            currAngle, state->currOrbit.radius);
+        float relX = currRelativePos.x; // cos is x because y is inverted
+        float relY = currRelativePos.y; // sin is y because y is inverted
 
         // Update hero.x and hero.y (coordinates relative to the screen)
         hero->x = closestObs.x + relX;
@@ -204,27 +187,32 @@ void processGame(GameSettings *settings, GameState *state, Hero *hero,
 
         // record how much the screen should move to account for the y
         // difference
-        float prevRelY = state->orbitRadius * sinf(prevAngle);
-        state->orbitYOffset = prevRelY - relY;
+        float prevAngle = Orbit_CalculateAngle(
+            settings->speed, state->currOrbit.radius,
+            state->currOrbit.startAngle, state->currOrbit.direction,
+            ((float)(time - state->currOrbit.startTime) / 1100.0f) - dt);
+        Point prevRelativePos = Orbit_CalculatePositionRelativeToTarget(
+            prevAngle, state->currOrbit.radius);
+        float prevRelY = prevRelativePos.y;
+        float prevRelX = prevRelativePos.x;
+        state->orbitYChangeSinceLastFrame = prevRelY - relY;
+        state->orbitXChangeSinceLastFrame = prevRelX - relX;
 
-        float prevRelX = state->orbitRadius * cosf(prevAngle);
-        state->orbitXOffset = prevRelX - relX;
         hero->x -=
-            (1.0f - settings->horizontalCameraMovement) * state->orbitXOffset;
+            (1.0f - settings->horizontalCameraMovement) * state->orbitXChangeSinceLastFrame;
 
-        // Update hero.vx and charSpeecY based on its current angle
-        hero->vx = -state->orbitDir * settings->speed * sinf(currAngle);
-        hero->vy = -1 * state->orbitDir * settings->speed * cosf(currAngle);
-
-        // Now increment orbitFrames
-        state->orbitTime += dt;
+        // Update hero.vx and charSpeedY based on its current angle
+        hero->vx =
+            -state->currOrbit.direction * settings->speed * sinf(currAngle);
+        hero->vy =
+            -1 * state->currOrbit.direction * settings->speed * cosf(currAngle);
     }
 
     // Handle not-orbiting specific logic
     if (!state->isOrbiting) {
         // It's game over if we are not orbiting and we go out of bounds
-        if (hero->x - hero->rad >= settings->width ||
-            hero->x + hero->rad <= 0) {
+        if (Physics_CheckCircleOutOfBoundsX(hero->x, hero->rad, 0,
+                                            settings->width)) {
             state->gameOver = true;
         }
 
@@ -245,21 +233,16 @@ void processGame(GameSettings *settings, GameState *state, Hero *hero,
         } else { // otherwise, move the "camera" y based on the orbit
                  // movement
             state->forwardProgressTravelled +=
-                state->orbitYOffset; // update progress traveled
-            obs[i].y += state->orbitYOffset;
+                state->orbitYChangeSinceLastFrame; // update progress traveled
+            obs[i].y += state->orbitYChangeSinceLastFrame;
             obs[i].x +=
-                settings->horizontalCameraMovement * state->orbitXOffset;
+                settings->horizontalCameraMovement * state->orbitXChangeSinceLastFrame;
         }
-        
-        Obs currObs = obs[i];
-        // While we are looping, check that char is colliding with obs
-        float distX = (float)hero->x - (float)currObs.x;
-        float distY = (float)hero->y - (float)currObs.y;
 
-        float distSquared = (distX * distX) + (distY * distY);
-        float radiiSumSquared =
-            (hero->rad + currObs.rad) * (hero->rad + currObs.rad);
-        if (distSquared <= radiiSumSquared) {
+        Obs currObs = obs[i];
+        if (Physics_ApproximateCirclesColliding(hero->x, hero->y, currObs.x,
+                                                currObs.y, hero->rad,
+                                                currObs.rad)) {
             state->gameOver = true;
         }
     }
@@ -291,7 +274,8 @@ void renderGame(SDL_Renderer *renderer, GameState *state,
     SDL_RenderPresent(renderer);
 
     // Draw the fixed forward progress on the top right as an int
-    // TODO: this doesn't seem to work? I guess we will have to use ttf at some point.
+    // TODO: this doesn't seem to work? I guess we will have to use ttf at
+    // some point.
     int forwardProgressAsInt = state->forwardProgressTravelled;
     char str[20];
     snprintf(str, sizeof(str), "%d", forwardProgressAsInt);
@@ -378,7 +362,8 @@ int main() {
         // Black background
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
         SDL_RenderClear(renderer);
-        processGame(&settings, &state, &hero, entities.obs, dt, spacePressed);
+        processGame(&settings, &state, &hero, entities.obs, dt, spacePressed,
+                    SDL_GetTicks());
         renderGame(renderer, &state, &settings, &hero, entities.obs);
 
         // ------ END GAME AND RENDERING -------
