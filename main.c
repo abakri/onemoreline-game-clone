@@ -250,6 +250,18 @@ void processGame(GameSettings *settings, GameState *state, Hero *hero,
             obs[i].x +=
                 settings->horizontalCameraMovement * state->orbitXOffset;
         }
+        
+        Obs currObs = obs[i];
+        // While we are looping, check that char is colliding with obs
+        float distX = (float)hero->x - (float)currObs.x;
+        float distY = (float)hero->y - (float)currObs.y;
+
+        float distSquared = (distX * distX) + (distY * distY);
+        float radiiSumSquared =
+            (hero->rad + currObs.rad) * (hero->rad + currObs.rad);
+        if (distSquared <= radiiSumSquared) {
+            state->gameOver = true;
+        }
     }
 }
 
@@ -272,17 +284,6 @@ void renderGame(SDL_Renderer *renderer, GameState *state,
     // Draw the obstacles
     for (int i = 0; i < NUM_OBS; i++) {
         Obs currObs = obs[i];
-
-        // While we are looping, check that char is colliding with obs
-        float distX = (float)hero->x - (float)currObs.x;
-        float distY = (float)hero->y - (float)currObs.y;
-
-        float distSquared = (distX * distX) + (distY * distY);
-        float radiiSumSquared =
-            (hero->rad + currObs.rad) * (hero->rad + currObs.rad);
-        if (distSquared <= radiiSumSquared) {
-            state->gameOver = true;
-        }
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // WHITE
         DrawFilledCircle(renderer, currObs.x, currObs.y, currObs.rad);
     }
@@ -290,10 +291,12 @@ void renderGame(SDL_Renderer *renderer, GameState *state,
     SDL_RenderPresent(renderer);
 
     // Draw the fixed forward progress on the top right as an int
-    // int forwardProgressAsInt = state->forwardProgressTravelled;
-    // char str[12];
-    // SDL_RenderDebugText(renderer, settings->width - 70, 20, sprintf(str,
-    // "%d", forwardProgressAsInt));
+    // TODO: this doesn't seem to work? I guess we will have to use ttf at some point.
+    int forwardProgressAsInt = state->forwardProgressTravelled;
+    char str[20];
+    snprintf(str, sizeof(str), "%d", forwardProgressAsInt);
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // WHITE
+    SDL_RenderDebugText(renderer, 0, 0, "hello");
 }
 
 int main() {
