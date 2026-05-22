@@ -8,6 +8,8 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <SDL3/SDL.h>
+#include <SDL3_ttf/SDL_ttf.h>
 
 #define MAX_INT32 2147483647
 #define DEBUG 0
@@ -37,3 +39,4 @@ typedef struct {
 // included here. And each of them should also include this file at the top.
 #include "camera.c"
 #include "physics.c"
+#include "draw.c"

@@ -2,19 +2,66 @@
 
 #include "camera.c"
 #include "physics.c"
-#include <SDL3/SDL.h>
 
-#define NUM_OBS 20
+#define NUM_OBS 10
 
-// Function to draw a circle in SDL
-void DrawFilledCircle(SDL_Renderer *renderer, int xC, int yC, int radius) {
-    for (int y = -radius; y <= radius; y++) {
-        for (int x = -radius; x <= radius; x++) {
-            if (x * x + y * y <= radius * radius) {
-                SDL_RenderPoint(renderer, xC + x, yC + y);
-            }
+typedef struct {
+    int size;
+    int capacity;
+    float *xVals;   // array of x values
+    float *yVals;   // array of y values
+    float *radVals; // array of radius values
+} ObsSOA;
+
+void AddObsMany(ObsSOA *obsSoa, int numNewItems, float x[], float y[],
+                float rad[]) {
+    // Note that we are assuming that the x, y, and rad arrays have a length of
+    // numNewItems
+
+    // Increase capacity if necessary
+    if (obsSoa->size + numNewItems >= obsSoa->capacity) {
+        if (obsSoa->capacity == 0) {
+            obsSoa->capacity = numNewItems;
+        } else {
+            obsSoa->capacity = (obsSoa->capacity + numNewItems) * 2;
+        }
+
+        obsSoa->xVals =
+            realloc(obsSoa->xVals, sizeof(float) * obsSoa->capacity);
+        obsSoa->yVals =
+            realloc(obsSoa->yVals, sizeof(float) * obsSoa->capacity);
+        obsSoa->radVals =
+            realloc(obsSoa->radVals, sizeof(float) * obsSoa->capacity);
+
+        if (!obsSoa->xVals || !obsSoa->yVals || !obsSoa->radVals) {
+            SDL_Log("Failed to reallocate obs soa");
+            exit(1);
         }
     }
+
+    // Add the new values
+    for (int i = 0; i < numNewItems; i++) {
+        obsSoa->xVals[obsSoa->size] = x[i];
+        obsSoa->yVals[obsSoa->size] = y[i];
+        obsSoa->radVals[obsSoa->size] = rad[i];
+        obsSoa->size += 1;
+    }
+}
+
+// TODO: Remember we need to actually call this once we have multiple
+// menus/games
+void FreeObs(ObsSOA *obsSoa) {
+    free(obsSoa->xVals);
+    free(obsSoa->yVals);
+    free(obsSoa->radVals);
+    obsSoa->capacity = 0;
+    obsSoa->size = 0;
+}
+
+ObsSOA NewObsSOA() {
+    ObsSOA result = {.size = 0, .capacity = 0};
+
+    return result;
 }
 
 typedef struct {
@@ -62,7 +109,7 @@ typedef struct {
 
 typedef struct {
     Hero hero;
-    Obs obs[NUM_OBS];
+    ObsSOA *obsSoa;
 } GameEntities;
 
 float PIXELS_PER_METER = 50;
@@ -108,8 +155,9 @@ GameSettings newGameSettings(int width, int height) {
     return settings;
 }
 
+// TODO: A lot of the drawing here will likely be replaced with game assets
 void processGame(GameSettings *settings, GameState *state, Hero *hero,
-                 Obs obs[], float dt, bool spaceKeyPressed, int time) {
+                 ObsSOA *obsSoa, float dt, bool spaceKeyPressed, int time) {
     float screenWidthToWorld =
         Camera_ScreenToWorldMeasurement(state->camera, settings->width);
     float leftVisibleBound = (screenWidthToWorld / 2) * -1;
@@ -138,15 +186,16 @@ void processGame(GameSettings *settings, GameState *state, Hero *hero,
         // TODO: Only look at the currently visible obs for performance
         int found = false;
         float closestDistSq =
-            (float)10000.0f; // TODO (aslan): This is obviously not right. What is the largest float?
+            (float)10000.0f; // TODO (aslan): This is obviously not right. What
+                             // is the largest float?
         for (int i = 0; i < NUM_OBS; i++) {
-            Obs currObs = obs[i];
-            if (currObs.y > upperVisibleBound ||
-                currObs.y < lowerVisibleBound) {
+            float currObsX = obsSoa->xVals[i];
+            float currObsY = obsSoa->yVals[i];
+            if (currObsY > upperVisibleBound || currObsY < lowerVisibleBound) {
                 continue;
             }
-            float distSquared = (currObs.x - hero->x) * (currObs.x - hero->x) +
-                                (currObs.y - hero->y) * (currObs.y - hero->y);
+            float distSquared = (currObsX - hero->x) * (currObsX - hero->x) +
+                                (currObsY - hero->y) * (currObsY - hero->y);
             if (distSquared < closestDistSq) {
                 found = 1;
                 state->closestObsForOrbit = i;
@@ -155,11 +204,12 @@ void processGame(GameSettings *settings, GameState *state, Hero *hero,
         }
         // If there is something to orbit, handle
         if (found) {
-            Obs closestObs = obs[state->closestObsForOrbit];
+            float closestObsX = obsSoa->xVals[state->closestObsForOrbit];
+            float closestObsY = obsSoa->yVals[state->closestObsForOrbit];
             state->currOrbit.radius = sqrtf(closestDistSq);
 
-            float dy = (float)hero->y - (float)closestObs.y;
-            float dx = (float)hero->x - (float)closestObs.x;
+            float dy = (float)hero->y - (float)closestObsY;
+            float dx = (float)hero->x - (float)closestObsX;
             float cross = dx * hero->vy - dy * hero->vx; // cross product
             float dot = dx * hero->vx + dy * hero->vy;
 
@@ -198,9 +248,10 @@ void processGame(GameSettings *settings, GameState *state, Hero *hero,
             state->currOrbit.direction * settings->speed * cosf(currAngle);
 
         // Update hero.x and hero.y (coordinates relative to the screen)
-        Obs closestObs = obs[state->closestObsForOrbit];
-        hero->x = closestObs.x + currXRelativeToObs;
-        hero->y = closestObs.y + currYRelativeToObs;
+        float closestObsX = obsSoa->xVals[state->closestObsForOrbit];
+        float closestObsY = obsSoa->yVals[state->closestObsForOrbit];
+        hero->x = closestObsX + currXRelativeToObs;
+        hero->y = closestObsY + currYRelativeToObs;
     }
 
     // Handle not-orbiting specific logic
@@ -216,24 +267,31 @@ void processGame(GameSettings *settings, GameState *state, Hero *hero,
 
     // Update obs locations
     for (int i = 0; i < NUM_OBS; i++) {
-        Obs currObs = obs[i];
-        if (Physics_ApproximateCirclesColliding(hero->x, hero->y, currObs.x,
-                                                currObs.y, hero->rad,
-                                                currObs.rad)) {
+        float currObsX = obsSoa->xVals[i];
+        float currObsY = obsSoa->yVals[i];
+        float currObsRad = obsSoa->radVals[i];
+        if (Physics_ApproximateCirclesColliding(
+                hero->x, hero->y, currObsX, currObsY, hero->rad, currObsRad)) {
             state->gameOver = true;
         }
     }
 
     // Update camera
-    float worldHeight = Camera_ScreenToWorldMeasurement(state->camera, settings->height);
-    state->camera.x = 0.25 * hero->x; // Camera x should be 25% of hero x diff relative to 0
-    state->camera.y = hero->y + (0.15 * worldHeight); // hero should be towards bottom of screen a bit
-
-    // SDL_Log("%.2f, %.2f", hero->x, hero->y);
+    float worldHeight =
+        Camera_ScreenToWorldMeasurement(state->camera, settings->height);
+    state->camera.x =
+        0.25 * hero->x; // Camera x should be 25% of hero x diff relative to 0
+    state->camera.y =
+        hero->y +
+        (0.15 * worldHeight); // hero should be towards bottom of screen a bit
+    
+    // Update our forward progress
+    state->forwardProgressTravelled = hero->y;
 }
 
 void renderGame(SDL_Renderer *renderer, GameState *state,
-                GameSettings *settings, Hero *hero, Obs obs[]) {
+                GameSettings *settings, Hero *hero, ObsSOA *obsSoa,
+                TTF_Text *scoreTextObj) {
     // Draw boundaries on the left and right
     float screenWidthToWorld =
         Camera_ScreenToWorldMeasurement(state->camera, settings->width);
@@ -242,7 +300,8 @@ void renderGame(SDL_Renderer *renderer, GameState *state,
     float leftScreenX =
         Camera_WorldPositionToScreen(state->camera, leftBound, 0,
                                      settings->width, settings->height)
-            .x - 1;
+            .x -
+        1;
     float rightScreenX =
         Camera_WorldPositionToScreen(state->camera, rightBound, 0,
                                      settings->width, settings->height)
@@ -271,12 +330,14 @@ void renderGame(SDL_Renderer *renderer, GameState *state,
     float heroScreenRad =
         Camera_WorldMeasurementToScreen(state->camera, hero->rad);
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // WHITE
-    DrawFilledCircle(renderer, heroScreenPos.x, heroScreenPos.y, heroScreenRad);
+    Draw_DrawFilledCircle(renderer, heroScreenPos.x, heroScreenPos.y,
+                          heroScreenRad);
 
     // Draw line to signal orbit
-    Obs closestObs = obs[state->closestObsForOrbit];
+    float closestObsX = obsSoa->xVals[state->closestObsForOrbit];
+    float closestObsY = obsSoa->yVals[state->closestObsForOrbit];
     Point closestObsScreenPos =
-        Camera_WorldPositionToScreen(state->camera, closestObs.x, closestObs.y,
+        Camera_WorldPositionToScreen(state->camera, closestObsX, closestObsY,
                                      settings->width, settings->height);
     if (state->spaceDown) {
         SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // RED
@@ -286,18 +347,18 @@ void renderGame(SDL_Renderer *renderer, GameState *state,
 
     // Draw the obstacles
     for (int i = 0; i < NUM_OBS; i++) {
-        Obs currObs = obs[i];
+        float currObsX = obsSoa->xVals[i];
+        float currObsY = obsSoa->yVals[i];
+        float currObsRad = obsSoa->radVals[i];
         Point currObsScreenPos =
-            Camera_WorldPositionToScreen(state->camera, currObs.x, currObs.y,
+            Camera_WorldPositionToScreen(state->camera, currObsX, currObsY,
                                          settings->width, settings->height);
         float currObsScreenRad =
-            Camera_WorldMeasurementToScreen(state->camera, currObs.rad);
+            Camera_WorldMeasurementToScreen(state->camera, currObsRad);
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // WHITE
-        DrawFilledCircle(renderer, currObsScreenPos.x, currObsScreenPos.y,
-                         currObsScreenRad);
+        Draw_DrawFilledCircle(renderer, currObsScreenPos.x, currObsScreenPos.y,
+                              currObsScreenRad);
     }
-
-    SDL_RenderPresent(renderer);
 
     // Draw the fixed forward progress on the top right as an int
     // TODO: this doesn't seem to work? I guess we will have to use ttf at
@@ -305,8 +366,11 @@ void renderGame(SDL_Renderer *renderer, GameState *state,
     int forwardProgressAsInt = state->forwardProgressTravelled;
     char str[20];
     snprintf(str, sizeof(str), "%d", forwardProgressAsInt);
-    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // WHITE
-    SDL_RenderDebugText(renderer, 0, 0, "hello");
+    
+    TTF_SetTextString(scoreTextObj, str, 0);
+    TTF_DrawRendererText(scoreTextObj, 20, 20);
+
+    SDL_RenderPresent(renderer);
 }
 
 int main() {
@@ -321,13 +385,24 @@ int main() {
     int width = 500;
     int height = 1000;
 
-    if (!SDL_CreateWindowAndRenderer("OML Clone", width, height, 0, &window,
+    if (!SDL_CreateWindowAndRenderer("OML", width, height, 0, &window,
                                      &renderer)) {
         SDL_Log("SDL_Init failed: %s", SDL_GetError());
         return 1;
     };
-
     SDL_RaiseWindow(window);
+
+    // Init font rendering
+    TTF_Init();
+    TTF_Font *font = TTF_OpenFont("./assets/Jersey10-Regular.ttf", 36.0f);
+    if (!font) {
+        SDL_Log("Failed to load font: %s", SDL_GetError());
+        return 1;
+    }
+
+    // Create font engine
+    TTF_TextEngine *textEngine = TTF_CreateRendererTextEngine(renderer);
+    TTF_Text *scoreTextObj = TTF_CreateText(textEngine, font, "Hello, world", 0);
 
     // Init game
     GameSettings settings = newGameSettings(width, height);
@@ -348,23 +423,31 @@ int main() {
     };
 
     // Generate obstacles
+    ObsSOA obsSoa = NewObsSOA();
     GameEntities entities = {
         .hero = hero,
-        .obs = {},
+        .obsSoa = &obsSoa,
     };
     float screenWidthToWorld =
         Camera_ScreenToWorldMeasurement(state.camera, settings.width);
     float leftVisibleBound = (screenWidthToWorld / 2) * -1;
     float rightVisibleBound = (screenWidthToWorld / 2);
+
+    float XToAdd[NUM_OBS];
+    float YToAdd[NUM_OBS];
+    float RadToAdd[NUM_OBS];
+
     for (int i = 0; i < NUM_OBS; i++) {
         float obsRad =
             randFloatBetween(settings.minObsRadius, settings.maxObsRadius);
         float minObsX = leftVisibleBound + obsRad + 1;
         float maxObsX = rightVisibleBound - obsRad - 1;
-        float obsX = randFloatBetween(minObsX, maxObsX);
-        float obsY = settings.startingObsY + i * settings.obsYInterval;
-        entities.obs[i] = newObs(obsX, obsY, obsRad);
+
+        XToAdd[i] = randFloatBetween(minObsX, maxObsX);
+        YToAdd[i] = settings.startingObsY + i * settings.obsYInterval;
+        RadToAdd[i] = obsRad;
     }
+    AddObsMany(entities.obsSoa, NUM_OBS, XToAdd, YToAdd, RadToAdd);
 
     float targetFps = 120;
     int quit = 0;
@@ -380,7 +463,8 @@ int main() {
         float dt = (float)(frameStart - lastFrameTime) / 1000.0f;
         lastFrameTime = frameStart;
 
-        // Poll events
+        // TODO: Move this out to some event tracking struct + function to
+        // update it Poll events
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
             case SDL_EVENT_QUIT:
@@ -399,9 +483,10 @@ int main() {
         // Black background
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
         SDL_RenderClear(renderer);
-        processGame(&settings, &state, &hero, entities.obs, dt, spacePressed,
+        processGame(&settings, &state, &hero, entities.obsSoa, dt, spacePressed,
                     SDL_GetTicks());
-        renderGame(renderer, &state, &settings, &hero, entities.obs);
+        renderGame(renderer, &state, &settings, &hero, entities.obsSoa,
+                   scoreTextObj);
 
         // ------ END GAME AND RENDERING -------
         // End of frame processing
@@ -415,7 +500,8 @@ int main() {
             SDL_Delay(toWait);
         }
     }
-
+    TTF_CloseFont(font);
+    TTF_Quit();
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
