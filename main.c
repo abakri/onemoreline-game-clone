@@ -3,7 +3,7 @@
 #include "camera.c"
 #include "physics.c"
 
-#define NUM_OBS 10
+#define OBS_TO_ADD_AT_A_TIME 50
 
 typedef struct {
     int size;
@@ -155,7 +155,26 @@ GameSettings newGameSettings(int width, int height) {
     return settings;
 }
 
-// TODO: A lot of the drawing here will likely be replaced with game assets
+void AppendNewRandomObs(ObsSOA *obsSoa, float screenWidthToWorld,
+                        float leftVisibleBound, float rightVisibleBound,
+                        float fromY, GameSettings *settings) {
+    float XToAdd[OBS_TO_ADD_AT_A_TIME];
+    float YToAdd[OBS_TO_ADD_AT_A_TIME];
+    float RadToAdd[OBS_TO_ADD_AT_A_TIME];
+
+    for (int i = 0; i < OBS_TO_ADD_AT_A_TIME; i++) {
+        float obsRad =
+            randFloatBetween(settings->minObsRadius, settings->maxObsRadius);
+        float minObsX = leftVisibleBound + obsRad + 1;
+        float maxObsX = rightVisibleBound - obsRad - 1;
+
+        XToAdd[i] = randFloatBetween(minObsX, maxObsX);
+        YToAdd[i] = fromY + i * settings->obsYInterval;
+        RadToAdd[i] = obsRad;
+    }
+    AddObsMany(obsSoa, OBS_TO_ADD_AT_A_TIME, XToAdd, YToAdd, RadToAdd);
+}
+
 void processGame(GameSettings *settings, GameState *state, Hero *hero,
                  ObsSOA *obsSoa, float dt, bool spaceKeyPressed, int time) {
     float screenWidthToWorld =
@@ -188,7 +207,7 @@ void processGame(GameSettings *settings, GameState *state, Hero *hero,
         float closestDistSq =
             (float)10000.0f; // TODO (aslan): This is obviously not right. What
                              // is the largest float?
-        for (int i = 0; i < NUM_OBS; i++) {
+        for (int i = 0; i < obsSoa->size; i++) {
             float currObsX = obsSoa->xVals[i];
             float currObsY = obsSoa->yVals[i];
             if (currObsY > upperVisibleBound || currObsY < lowerVisibleBound) {
@@ -266,7 +285,7 @@ void processGame(GameSettings *settings, GameState *state, Hero *hero,
     }
 
     // Update obs locations
-    for (int i = 0; i < NUM_OBS; i++) {
+    for (int i = 0; i < obsSoa->size; i++) {
         float currObsX = obsSoa->xVals[i];
         float currObsY = obsSoa->yVals[i];
         float currObsRad = obsSoa->radVals[i];
@@ -284,11 +303,34 @@ void processGame(GameSettings *settings, GameState *state, Hero *hero,
     state->camera.y =
         hero->y +
         (0.15 * worldHeight); // hero should be towards bottom of screen a bit
-    
+
     // Update our forward progress
     state->forwardProgressTravelled = hero->y;
+
+    // If we need to create new obstacles, do that now
+    if (obsSoa->size == 0) {
+        return;
+    }
+    if (obsSoa->size < 10) { // if there are only 10, check index size // 2
+        int indexToCheck = obsSoa->size / 2;
+        if (hero->y >= obsSoa->yVals[indexToCheck]) {
+            float newStartingY = obsSoa->yVals[obsSoa->size - 1] + settings->obsYInterval;
+            AppendNewRandomObs(obsSoa, screenWidthToWorld, leftVisibleBound,
+                               rightVisibleBound, newStartingY,
+                               settings);
+        }
+    } else { // check 5 before
+        int indexToCheck = obsSoa->size - 5;
+        if (hero->y >= obsSoa->yVals[indexToCheck]) {
+            float newStartingY = obsSoa->yVals[obsSoa->size - 1] + settings->obsYInterval;
+            AppendNewRandomObs(obsSoa, screenWidthToWorld, leftVisibleBound,
+                               rightVisibleBound, newStartingY,
+                               settings);
+        }
+    }
 }
 
+// TODO: A lot of the drawing here will likely be replaced with game assets
 void renderGame(SDL_Renderer *renderer, GameState *state,
                 GameSettings *settings, Hero *hero, ObsSOA *obsSoa,
                 TTF_Text *scoreTextObj) {
@@ -346,7 +388,7 @@ void renderGame(SDL_Renderer *renderer, GameState *state,
     }
 
     // Draw the obstacles
-    for (int i = 0; i < NUM_OBS; i++) {
+    for (int i = 0; i < obsSoa->size; i++) {
         float currObsX = obsSoa->xVals[i];
         float currObsY = obsSoa->yVals[i];
         float currObsRad = obsSoa->radVals[i];
@@ -366,7 +408,7 @@ void renderGame(SDL_Renderer *renderer, GameState *state,
     int forwardProgressAsInt = state->forwardProgressTravelled;
     char str[20];
     snprintf(str, sizeof(str), "%d", forwardProgressAsInt);
-    
+
     TTF_SetTextString(scoreTextObj, str, 0);
     TTF_DrawRendererText(scoreTextObj, 20, 20);
 
@@ -402,7 +444,8 @@ int main() {
 
     // Create font engine
     TTF_TextEngine *textEngine = TTF_CreateRendererTextEngine(renderer);
-    TTF_Text *scoreTextObj = TTF_CreateText(textEngine, font, "Hello, world", 0);
+    TTF_Text *scoreTextObj =
+        TTF_CreateText(textEngine, font, "Hello, world", 0);
 
     // Init game
     GameSettings settings = newGameSettings(width, height);
@@ -432,22 +475,8 @@ int main() {
         Camera_ScreenToWorldMeasurement(state.camera, settings.width);
     float leftVisibleBound = (screenWidthToWorld / 2) * -1;
     float rightVisibleBound = (screenWidthToWorld / 2);
-
-    float XToAdd[NUM_OBS];
-    float YToAdd[NUM_OBS];
-    float RadToAdd[NUM_OBS];
-
-    for (int i = 0; i < NUM_OBS; i++) {
-        float obsRad =
-            randFloatBetween(settings.minObsRadius, settings.maxObsRadius);
-        float minObsX = leftVisibleBound + obsRad + 1;
-        float maxObsX = rightVisibleBound - obsRad - 1;
-
-        XToAdd[i] = randFloatBetween(minObsX, maxObsX);
-        YToAdd[i] = settings.startingObsY + i * settings.obsYInterval;
-        RadToAdd[i] = obsRad;
-    }
-    AddObsMany(entities.obsSoa, NUM_OBS, XToAdd, YToAdd, RadToAdd);
+    AppendNewRandomObs(entities.obsSoa, screenWidthToWorld, leftVisibleBound,
+                       rightVisibleBound, settings.startingObsY, &settings);
 
     float targetFps = 120;
     int quit = 0;
@@ -500,6 +529,7 @@ int main() {
             SDL_Delay(toWait);
         }
     }
+
     TTF_CloseFont(font);
     TTF_Quit();
     SDL_DestroyRenderer(renderer);
