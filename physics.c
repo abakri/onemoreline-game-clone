@@ -28,6 +28,16 @@ int Physics_ApproximateCirclesColliding(float x1, float y1, float x2, float y2,
     return (distSquared <= radiiSumSquared);
 };
 
+int Physics_CheckCircleOutOfBoundsLeft(float centerX, float radius,
+                                       float leftBound) {
+    return centerX + radius < leftBound;
+}
+
+int Physics_CheckCircleOutOfBoundsRight(float centerX, float radius,
+                                        float rightBound) {
+    return centerX - radius > rightBound;
+}
+
 int Physics_CheckCircleOutOfBoundsX(float centerX, float radius,
                                     float leftBound, float rightBound) {
     return centerX + radius < leftBound || centerX - radius > rightBound;

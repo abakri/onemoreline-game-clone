@@ -85,6 +85,12 @@ typedef struct {
 } Hero;
 
 typedef struct {
+    int includeForwardMovementPowerup;
+    int forwardStreakPowerupLengthMs;
+    int includeBlackholes;
+} GameOptions;
+
+typedef struct {
     int numObs;
     float minObsRadius;
     float maxObsRadius;
@@ -94,14 +100,25 @@ typedef struct {
     int height;
     float speed;
     float horizontalCameraMovement;
+    GameOptions gameOptions;
 } GameSettings;
 
 typedef struct {
     bool gameOver;
     bool spaceDown;
     bool isOrbiting;
+    bool hasOrbitedAtLeastOnce;
+    bool forwardStreakPowerupActive;
+
+    // This is used to track when hero is in forward streak powerup
+    // and has already collided into an obstacle triggering active powerup.
+    bool forwardStreakPowerupCollisionActivated;
+
+    bool isInvincible;
+    int forwardProgressPowerupActiveTimerStart;
     int closestObsForOrbit;
     float forwardProgressTravelled;
+    float forwardProgressStreak;
     Hero hero;
     OrbitData currOrbit;
     Camera camera; // Is it okay that we copy a camera in?
@@ -134,6 +151,10 @@ GameState newGameState(Camera camera) {
         .isOrbiting = false,
         .closestObsForOrbit = 0.0f,
         .forwardProgressTravelled = 0.0f,
+        .forwardProgressStreak = 0.0f,
+        .hasOrbitedAtLeastOnce = false,
+        .forwardStreakPowerupActive = false,
+        .isInvincible = false,
         .currOrbit = newOrbitData(),
         .camera = camera,
     };
@@ -141,6 +162,12 @@ GameState newGameState(Camera camera) {
 }
 
 GameSettings newGameSettings(int width, int height) {
+    GameOptions options = {
+        .includeForwardMovementPowerup = 0,
+        .includeBlackholes = 0,
+        .forwardStreakPowerupLengthMs = 3000,
+
+    };
     GameSettings settings = {
         .minObsRadius = 0.2f,
         .maxObsRadius = 0.8f,
@@ -150,6 +177,7 @@ GameSettings newGameSettings(int width, int height) {
         .width = width,
         .height = height,
         .speed = 20.0f,
+        .gameOptions = options,
     };
 
     return settings;
@@ -185,6 +213,25 @@ void processGame(GameSettings *settings, GameState *state, Hero *hero,
         Camera_ScreenToWorldMeasurement(state->camera, settings->height);
     float upperVisibleBound = state->camera.y + (screenHeightToWorld / 2);
     float lowerVisibleBound = state->camera.y + (screenHeightToWorld / 2) * -1;
+
+    // -- HANDLE TIMER EVENTS
+    // Handle forward movement powerup
+    if (settings->gameOptions.includeForwardMovementPowerup &&
+        state->forwardStreakPowerupActive) {
+        int currentTime = SDL_GetTicks();
+        int elapsedMs =
+            currentTime - state->forwardProgressPowerupActiveTimerStart;
+        if (elapsedMs >= settings->gameOptions.forwardStreakPowerupLengthMs) {
+            // TODO: Extract to function
+            state->isInvincible = false;
+            state->forwardStreakPowerupActive = false;
+            state->forwardStreakPowerupCollisionActivated = false;
+            // TODO: Don't do this. I guess we should have some build and
+            // teardown for each powerup.
+            hero->vy /= 1.5;
+            hero->vx /= 1.5;
+        }
+    }
 
     // --- HANDLE INPUT ---
     // The moment the spacebar is clicked
@@ -237,6 +284,7 @@ void processGame(GameSettings *settings, GameState *state, Hero *hero,
             if (dot >= 0) {
                 // We should now be in orbit
                 state->isOrbiting = true;
+                state->hasOrbitedAtLeastOnce = true;
 
                 // Update current orbit
                 state->currOrbit.startAngle = atan2f(dy, dx);
@@ -249,6 +297,11 @@ void processGame(GameSettings *settings, GameState *state, Hero *hero,
 
     // Handle orbiting specific logic
     if (state->isOrbiting) {
+        // Reset counter for forward streak
+        if (settings->gameOptions.includeForwardMovementPowerup) {
+            state->forwardProgressStreak = 0.0f;
+        }
+
         // Update hero.x and hero.y
         // These are the coordinates relative to the closest object
         float currAngle = Orbit_CalculateAngle(
@@ -275,12 +328,42 @@ void processGame(GameSettings *settings, GameState *state, Hero *hero,
 
     // Handle not-orbiting specific logic
     if (!state->isOrbiting) {
+        // Increase forward progress streak if necessary
+        if (settings->gameOptions.includeForwardMovementPowerup &&
+            hero->vy > 0 && state->hasOrbitedAtLeastOnce &&
+            !state->forwardStreakPowerupActive) {
+            state->forwardProgressStreak +=
+                1 *
+                dt; // If streak has reached threshold time, then we activate
+            if (state->forwardProgressStreak >= 0.5) {
+                state->forwardStreakPowerupActive = true;
+                state->isInvincible = true;
+                state->forwardProgressPowerupActiveTimerStart = SDL_GetTicks();
+            }
+        }
+
+        // Update x and y
         hero->y += hero->vy * dt;
         hero->x += hero->vx * dt;
         // It's game over if we are not orbiting and we go out of bounds
-        if (Physics_CheckCircleOutOfBoundsX(
+        if (!state->isInvincible &&
+            Physics_CheckCircleOutOfBoundsX(
                 hero->x, hero->rad, leftVisibleBound, rightVisibleBound)) {
             state->gameOver = true;
+        }
+        if (state->isInvincible) {
+            // If invincible and out of bounds left, bounce right
+            if (Physics_CheckCircleOutOfBoundsLeft(hero->x, hero->rad,
+                                                   leftVisibleBound)) {
+                hero->x = leftVisibleBound - hero->rad;
+                hero->vx *= -1;
+            }
+            // If invincible and out of bounds right, bouce left
+            if (Physics_CheckCircleOutOfBoundsRight(hero->x, hero->rad,
+                                                    rightVisibleBound)) {
+                hero->x = rightVisibleBound + hero->rad;
+                hero->vx *= -1;
+            };
         }
     }
 
@@ -291,7 +374,19 @@ void processGame(GameSettings *settings, GameState *state, Hero *hero,
         float currObsRad = obsSoa->radVals[i];
         if (Physics_ApproximateCirclesColliding(
                 hero->x, hero->y, currObsX, currObsY, hero->rad, currObsRad)) {
-            state->gameOver = true;
+
+            if (!state->isInvincible) {
+                state->gameOver = true;
+            }
+
+            // If the forwardStreakPowerupActive is active
+            if (settings->gameOptions.includeForwardMovementPowerup &&
+                state->isInvincible && state->forwardStreakPowerupActive &&
+                !state->forwardStreakPowerupCollisionActivated) {
+                state->forwardStreakPowerupCollisionActivated = true;
+                hero->vy *= 1.5;
+                hero->vx *= 1.5;
+            }
         }
     }
 
@@ -314,18 +409,18 @@ void processGame(GameSettings *settings, GameState *state, Hero *hero,
     if (obsSoa->size < 10) { // if there are only 10, check index size // 2
         int indexToCheck = obsSoa->size / 2;
         if (hero->y >= obsSoa->yVals[indexToCheck]) {
-            float newStartingY = obsSoa->yVals[obsSoa->size - 1] + settings->obsYInterval;
+            float newStartingY =
+                obsSoa->yVals[obsSoa->size - 1] + settings->obsYInterval;
             AppendNewRandomObs(obsSoa, screenWidthToWorld, leftVisibleBound,
-                               rightVisibleBound, newStartingY,
-                               settings);
+                               rightVisibleBound, newStartingY, settings);
         }
     } else { // check 5 before
         int indexToCheck = obsSoa->size - 5;
         if (hero->y >= obsSoa->yVals[indexToCheck]) {
-            float newStartingY = obsSoa->yVals[obsSoa->size - 1] + settings->obsYInterval;
+            float newStartingY =
+                obsSoa->yVals[obsSoa->size - 1] + settings->obsYInterval;
             AppendNewRandomObs(obsSoa, screenWidthToWorld, leftVisibleBound,
-                               rightVisibleBound, newStartingY,
-                               settings);
+                               rightVisibleBound, newStartingY, settings);
         }
     }
 }
@@ -371,7 +466,12 @@ void renderGame(SDL_Renderer *renderer, GameState *state,
         state->camera, hero->x, hero->y, settings->width, settings->height);
     float heroScreenRad =
         Camera_WorldMeasurementToScreen(state->camera, hero->rad);
-    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // WHITE
+
+    if (settings->gameOptions.includeForwardMovementPowerup && state->forwardStreakPowerupActive) {
+        SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // RED
+    } else {
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // WHITE
+    }
     Draw_DrawFilledCircle(renderer, heroScreenPos.x, heroScreenPos.y,
                           heroScreenRad);
 
