@@ -39,4 +39,5 @@ typedef struct {
 // included here. And each of them should also include this file at the top.
 #include "camera.c"
 #include "physics.c"
+#include "obstacles.c"
 #include "draw.c"
