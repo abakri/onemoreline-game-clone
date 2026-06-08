@@ -25,7 +25,7 @@ int Physics_ApproximateCirclesColliding(float x1, float y1, float x2, float y2,
     float distY = y1 - y2;
     float distSquared = (distX * distX) + (distY * distY);
     float radiiSumSquared = (rad1 + rad2) * (rad1 + rad2);
-    return (distSquared <= radiiSumSquared);
+    return distSquared <= radiiSumSquared;
 };
 
 int Physics_CheckCircleOutOfBoundsLeft(float centerX, float radius,
@@ -41,6 +41,13 @@ int Physics_CheckCircleOutOfBoundsRight(float centerX, float radius,
 int Physics_CheckCircleOutOfBoundsX(float centerX, float radius,
                                     float leftBound, float rightBound) {
     return centerX + radius < leftBound || centerX - radius > rightBound;
+}
+
+int Physics_CheckCircleWithinRect(float centerX, float centerY, float radius,
+                                  float leftBound, float rightBound,
+                                  float lowerBound, float upperBound) {
+    return centerX - radius > leftBound && centerX + radius < rightBound &&
+           centerY + radius < upperBound && centerY - radius > lowerBound;
 }
 
 // --- ORBITING CALCULATIONS ---

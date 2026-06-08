@@ -1,7 +1,11 @@
 #include "types.h"
 
 #include "camera.c"
+#include "obstacles.c"
 #include "physics.c"
+
+#define OBS_TO_ADD_AT_A_TIME 100
+#define MAX_DT 0.05f
 
 typedef struct {
     float x;
@@ -33,6 +37,8 @@ typedef struct {
     int numObs;
     float minObsRadius;
     float maxObsRadius;
+    float minObsYInterval;
+    float maxObsYInterval;
     float obsYInterval;
     float startingObsY;
     int width;
@@ -88,7 +94,7 @@ GameState newGameState(Camera camera) {
         .gameOver = false,
         .spaceDown = false,
         .isOrbiting = false,
-        .closestObsForOrbit = 0.0f,
+        .closestObsForOrbit = 0,
         .forwardProgressTravelled = 0.0f,
         .forwardProgressStreak = 0.0f,
         .hasOrbitedAtLeastOnce = false,
@@ -110,7 +116,9 @@ GameSettings newGameSettings(int width, int height) {
     GameSettings settings = {
         .minObsRadius = 0.2f,
         .maxObsRadius = 0.8f,
-        .obsYInterval = 10.0,
+        .minObsYInterval = 5.0f,
+        .maxObsYInterval = 12.0f,
+        .obsYInterval = 10.0f,
         .startingObsY = 20.0f,
         .horizontalCameraMovement = 0.15f,
         .width = width,
@@ -122,28 +130,42 @@ GameSettings newGameSettings(int width, int height) {
     return settings;
 }
 
+float NewRandomYInterval(GameSettings *settings) {
+    return randFloatBetween(settings->minObsYInterval,
+                            settings->maxObsYInterval);
+};
+
 void AppendNewRandomObs(ObsSOA *obsSoa, float screenWidthToWorld,
                         float leftVisibleBound, float rightVisibleBound,
                         float fromY, GameSettings *settings) {
     float XToAdd[OBS_TO_ADD_AT_A_TIME];
     float YToAdd[OBS_TO_ADD_AT_A_TIME];
     float RadToAdd[OBS_TO_ADD_AT_A_TIME];
+    float currY = fromY;
 
     for (int i = 0; i < OBS_TO_ADD_AT_A_TIME; i++) {
         float obsRad =
             randFloatBetween(settings->minObsRadius, settings->maxObsRadius);
         float minObsX = leftVisibleBound + obsRad + 1;
         float maxObsX = rightVisibleBound - obsRad - 1;
+        float randYInterval = NewRandomYInterval(settings);
 
         XToAdd[i] = randFloatBetween(minObsX, maxObsX);
-        YToAdd[i] = fromY + i * settings->obsYInterval;
+        YToAdd[i] = currY + randYInterval;
+        currY += randYInterval;
         RadToAdd[i] = obsRad;
     }
     AddObsMany(obsSoa, OBS_TO_ADD_AT_A_TIME, XToAdd, YToAdd, RadToAdd);
 }
 
-void processGame(GameSettings *settings, GameState *state, Hero *hero,
-                 ObsSOA *obsSoa, float dt, bool spaceKeyPressed, int time) {
+void updateGame(GameSettings *settings, GameState *state, Hero *hero,
+                ObsSOA *obsSoa, float dt, bool spaceKeyPressed, int time) {
+    // Clamp dt to our max dt. If dt comes back super high, then we can
+    // experience tunneling.
+    if (dt > MAX_DT) {
+        dt = MAX_DT;
+    }
+
     float screenWidthToWorld =
         Camera_ScreenToWorldMeasurement(state->camera, settings->width);
     float leftVisibleBound = (screenWidthToWorld / 2) * -1;
@@ -193,6 +215,7 @@ void processGame(GameSettings *settings, GameState *state, Hero *hero,
         float closestDistSq =
             (float)10000.0f; // TODO (aslan): This is obviously not right. What
                              // is the largest float?
+
         for (int i = 0; i < obsSoa->size; i++) {
             float currObsX = obsSoa->xVals[i];
             float currObsY = obsSoa->yVals[i];
@@ -349,7 +372,7 @@ void processGame(GameSettings *settings, GameState *state, Hero *hero,
         int indexToCheck = obsSoa->size / 2;
         if (hero->y >= obsSoa->yVals[indexToCheck]) {
             float newStartingY =
-                obsSoa->yVals[obsSoa->size - 1] + settings->obsYInterval;
+                obsSoa->yVals[obsSoa->size - 1] + NewRandomYInterval(settings);
             AppendNewRandomObs(obsSoa, screenWidthToWorld, leftVisibleBound,
                                rightVisibleBound, newStartingY, settings);
         }
@@ -357,7 +380,7 @@ void processGame(GameSettings *settings, GameState *state, Hero *hero,
         int indexToCheck = obsSoa->size - 5;
         if (hero->y >= obsSoa->yVals[indexToCheck]) {
             float newStartingY =
-                obsSoa->yVals[obsSoa->size - 1] + settings->obsYInterval;
+                obsSoa->yVals[obsSoa->size - 1] + NewRandomYInterval(settings);
             AppendNewRandomObs(obsSoa, screenWidthToWorld, leftVisibleBound,
                                rightVisibleBound, newStartingY, settings);
         }
@@ -371,8 +394,14 @@ void renderGame(SDL_Renderer *renderer, GameState *state,
     // Draw boundaries on the left and right
     float screenWidthToWorld =
         Camera_ScreenToWorldMeasurement(state->camera, settings->width);
+    float screenHeightToWorld =
+        Camera_ScreenToWorldMeasurement(state->camera, settings->height);
+
     float leftBound = (screenWidthToWorld / 2) * -1;
     float rightBound = (screenWidthToWorld / 2);
+    float upperBound = state->camera.y + (screenHeightToWorld / 2);
+    float lowerBound = state->camera.y + (screenHeightToWorld / 2) * -1;
+
     float leftScreenX =
         Camera_WorldPositionToScreen(state->camera, leftBound, 0,
                                      settings->width, settings->height)
@@ -406,7 +435,8 @@ void renderGame(SDL_Renderer *renderer, GameState *state,
     float heroScreenRad =
         Camera_WorldMeasurementToScreen(state->camera, hero->rad);
 
-    if (settings->gameOptions.includeForwardMovementPowerup && state->forwardStreakPowerupActive) {
+    if (settings->gameOptions.includeForwardMovementPowerup &&
+        state->forwardStreakPowerupActive) {
         SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // RED
     } else {
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // WHITE
@@ -427,6 +457,7 @@ void renderGame(SDL_Renderer *renderer, GameState *state,
     }
 
     // Draw the obstacles
+    // TODO: Only draw obstacles that are on the screen
     for (int i = 0; i < obsSoa->size; i++) {
         float currObsX = obsSoa->xVals[i];
         float currObsY = obsSoa->yVals[i];
@@ -436,9 +467,14 @@ void renderGame(SDL_Renderer *renderer, GameState *state,
                                          settings->width, settings->height);
         float currObsScreenRad =
             Camera_WorldMeasurementToScreen(state->camera, currObsRad);
-        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // WHITE
-        Draw_DrawFilledCircle(renderer, currObsScreenPos.x, currObsScreenPos.y,
-                              currObsScreenRad);
+        // Only render if the obs should be on the screen
+        if (Physics_CheckCircleWithinRect(currObsX, currObsY, currObsRad,
+                                          leftBound, rightBound, lowerBound,
+                                          upperBound)) {
+            SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // WHITE
+            Draw_DrawFilledCircle(renderer, currObsScreenPos.x,
+                                  currObsScreenPos.y, currObsScreenRad);
+        }
     }
 
     // Draw the fixed forward progress on the top right as an int
@@ -551,8 +587,8 @@ int main() {
         // Black background
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
         SDL_RenderClear(renderer);
-        processGame(&settings, &state, &hero, entities.obsSoa, dt, spacePressed,
-                    SDL_GetTicks());
+        updateGame(&settings, &state, &hero, entities.obsSoa, dt, spacePressed,
+                   SDL_GetTicks());
         renderGame(renderer, &state, &settings, &hero, entities.obsSoa,
                    scoreTextObj);
 

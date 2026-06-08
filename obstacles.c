@@ -1,8 +1,6 @@
 #pragma once
 #include "types.h"
 
-#define OBS_TO_ADD_AT_A_TIME 50
-
 typedef struct {
     int size;
     int capacity;
