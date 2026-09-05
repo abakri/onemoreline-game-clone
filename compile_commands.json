@@ -6,12 +6,13 @@
       "-std=c99",
       "-Wall",
       "-Werror",
-      "main.c",
+      "-DOML_SDL",
+      "SDL_main.c",
       "-o",
-      "main",
+      "sdl_main",
       "-I/opt/homebrew/include"
     ],
     "directory": "/Users/aslan/personal/onemoreline",
-    "output": "main"
+    "output": "sdl_main"
   }
 ]

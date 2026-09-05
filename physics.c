@@ -61,8 +61,8 @@ float Orbit_CalculateAngle(float speed, float orbitRadius,
 Point Orbit_CalculatePositionRelativeToTarget(float currAngle,
                                               float orbitRadius) {
     // These are the coordinates relative to the closest object
-    Point p = {.x = orbitRadius * cosf(currAngle),
-               .y = orbitRadius * sinf(currAngle)};
+    Point p = {.x = orbitRadius * OmlMath_Cosf(currAngle),
+               .y = orbitRadius * OmlMath_Sinf(currAngle)};
 
     return p;
 }

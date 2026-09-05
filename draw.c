@@ -1,6 +1,8 @@
 #pragma once
 #include "types.h"
 
+// -------------------------------- SDL HELPERS --------------------------------
+#ifdef OML_SDL
 // Helper functions not provided by SDL3
 //
 // Function to draw a circle in SDL
@@ -13,4 +15,4 @@ void Draw_DrawFilledCircle(SDL_Renderer *renderer, int xC, int yC, int radius) {
         }
     }
 }
-
+#endif
