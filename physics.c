@@ -7,6 +7,9 @@ typedef struct {
     int startTime; // Makes it easy to calculate a delta. Should be something
     // like ms since program start.
     int direction; // 1 is clockwise, -1 is counterclockwise
+
+    float centerX;
+    float centerY;
 } OrbitData;
 
 OrbitData newOrbitData() {

@@ -25,6 +25,25 @@ unsigned long bitshift_rand(void) {
     return x;
 }
 
+unsigned int OmlMath_Hash(unsigned int seed, unsigned int i,
+                          unsigned int salt) {
+    unsigned int h = seed ^ (i * 0x9E3779B1u) ^ (salt * 0x85EBCA6Bu);
+    h ^= h >> 16;
+    h *= 0x7FEB352Du;
+    h ^= h >> 15;
+    h *= 0x846CA68Bu;
+    h ^= h >> 16;
+    return h;
+}
+
+float OmlMath_HashToUnit(unsigned int h) {
+    return (h >> 8) * (1.0f / 16777216.0f);
+}
+
+float OmlMath_Lerp(float lo, float hi, float unit) {
+    return (hi - lo) * unit + lo;
+}
+
 // Function to set the global seed
 void OmlMath_SetRandomizerSeed(unsigned long seed) {
     if (seed == 0) {

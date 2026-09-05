@@ -1,3 +1,4 @@
 libraylib.a
-main
+./sdl_main
+wasm_main
 .cache/

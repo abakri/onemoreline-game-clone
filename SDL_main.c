@@ -6,9 +6,8 @@
 #include "physics.c"
 
 // TODO: A lot of the drawing here will likely be replaced with game assets
-void renderGame(SDL_Renderer *renderer, GameState *state,
-                GameSettings *settings, Hero *hero, ObsSOA *obsSoa,
-                TTF_Text *scoreTextObj) {
+void renderGame(SDL_Renderer *renderer, WorldGen *worldGen, GameState *state,
+                GameSettings *settings, Hero *hero, TTF_Text *scoreTextObj) {
     // Draw boundaries on the left and right
     float screenWidthToWorld =
         Camera_ScreenToWorldMeasurement(state->camera, settings->width);
@@ -57,24 +56,40 @@ void renderGame(SDL_Renderer *renderer, GameState *state,
     Draw_DrawFilledCircle(renderer, heroScreenPos.x, heroScreenPos.y,
                           heroScreenRad);
 
+    ObsSOA obsSoa = NewObsSOA();
+    float lowerVisibleBound = state->camera.y + (screenHeightToWorld / 2) * -1;
+    GetObsSoaStartingAtPosition(&obsSoa, lowerVisibleBound, OBS_SOA_SIZE,
+                                worldGen);
+
     // Draw line to signal orbit
-    float closestObsX = obsSoa->xVals[state->closestObsForOrbit];
-    float closestObsY = obsSoa->yVals[state->closestObsForOrbit];
+    Obs closestObs = GetClosestObsToPoint(hero->x, hero->y, worldGen);
     Point closestObsScreenPos =
-        Camera_WorldPositionToScreen(state->camera, closestObsX, closestObsY,
+        Camera_WorldPositionToScreen(state->camera, closestObs.x, closestObs.y,
                                      settings->width, settings->height);
-    if (state->spaceDown) {
+    // Use this to always see the closest obs
+    // SDL_SetRenderDrawColor(renderer, 0, 0, 255, 255); // BLUE
+    // SDL_RenderLine(renderer, heroScreenPos.x, heroScreenPos.y,
+    //                closestObsScreenPos.x, closestObsScreenPos.y);
+
+    if (state->spaceDown && !state->isOrbiting) {
         SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // RED
         SDL_RenderLine(renderer, heroScreenPos.x, heroScreenPos.y,
                        closestObsScreenPos.x, closestObsScreenPos.y);
+    } else if (state->isOrbiting) {
+        Point orbitCenterScreenPos = Camera_WorldPositionToScreen(
+            state->camera, state->currOrbit.centerX, state->currOrbit.centerY,
+            settings->width, settings->height);
+        SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // RED
+        SDL_RenderLine(renderer, heroScreenPos.x, heroScreenPos.y,
+                       orbitCenterScreenPos.x, orbitCenterScreenPos.y);
     }
 
     // Draw the obstacles
     // TODO: Only draw obstacles that are on the screen
-    for (int i = 0; i < obsSoa->size; i++) {
-        float currObsX = obsSoa->xVals[i];
-        float currObsY = obsSoa->yVals[i];
-        float currObsRad = obsSoa->radVals[i];
+    for (int i = 0; i < OBS_SOA_SIZE; i++) {
+        float currObsX = obsSoa.xVals[i];
+        float currObsY = obsSoa.yVals[i];
+        float currObsRad = obsSoa.radVals[i];
         Point currObsScreenPos =
             Camera_WorldPositionToScreen(state->camera, currObsX, currObsY,
                                          settings->width, settings->height);
@@ -90,10 +105,7 @@ void renderGame(SDL_Renderer *renderer, GameState *state,
         }
     }
 
-    // Draw the fixed forward progress on the top right as an int
-    // TODO: this doesn't seem to work? I guess we will have to use ttf at
-    // some point.
-    int forwardProgressAsInt = state->forwardProgressTravelled;
+    int forwardProgressAsInt = (int)state->forwardProgressTravelled;
     char str[20];
     snprintf(str, sizeof(str), "%d", forwardProgressAsInt);
 
@@ -112,11 +124,11 @@ int main() {
     SDL_Renderer *renderer = NULL;
     SDL_Window *window = NULL;
 
-    int width = 500;
-    int height = 1000;
+    int windowWidth = 500;
+    int windowHeight = 1000;
 
-    if (!SDL_CreateWindowAndRenderer("OML", width, height, 0, &window,
-                                     &renderer)) {
+    if (!SDL_CreateWindowAndRenderer("OML", windowWidth, windowHeight, 0,
+                                     &window, &renderer)) {
         SDL_Log("SDL_Init failed: %s", SDL_GetError());
         return 1;
     };
@@ -135,11 +147,12 @@ int main() {
     TTF_Text *scoreTextObj =
         TTF_CreateText(textEngine, font, "Hello, world", 0);
 
+    // Generate world
+    uint32_t seed = 400;
+    WorldGen worldGen = newWorldGen(seed);
+
     // Init game
-    // Set our randomizer seed.
-    // TODO: Don't hardcode, since every game will be the same
-    OmlMath_SetRandomizerSeed(1UL);
-    GameSettings settings = newGameSettings(width, height);
+    GameSettings settings = newGameSettings(windowWidth, windowHeight);
     Camera camera = {
         .x = 0,
         .y = 0,
@@ -155,19 +168,6 @@ int main() {
         .vy = settings.speed,
         .rad = 0.3,
     };
-
-    // Generate obstacles
-    ObsSOA obsSoa = NewObsSOA();
-    GameEntities entities = {
-        .hero = hero,
-        .obsSoa = &obsSoa,
-    };
-    float screenWidthToWorld =
-        Camera_ScreenToWorldMeasurement(state.camera, settings.width);
-    float leftVisibleBound = (screenWidthToWorld / 2) * -1;
-    float rightVisibleBound = (screenWidthToWorld / 2);
-    AppendNewRandomObs(entities.obsSoa, screenWidthToWorld, leftVisibleBound,
-                       rightVisibleBound, settings.startingObsY, &settings);
 
     float targetFps = 120;
     int quit = 0;
@@ -203,10 +203,9 @@ int main() {
         // Black background
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
         SDL_RenderClear(renderer);
-        updateGame(&settings, &state, &hero, entities.obsSoa, dt, spacePressed,
+        updateGame(&worldGen, &settings, &state, &hero, dt, spacePressed,
                    SDL_GetTicks());
-        renderGame(renderer, &state, &settings, &hero, entities.obsSoa,
-                   scoreTextObj);
+        renderGame(renderer, &worldGen, &state, &settings, &hero, scoreTextObj);
 
         // ------ END GAME AND RENDERING -------
         // End of frame processing
@@ -215,7 +214,7 @@ int main() {
 
         // now to hit our target fps we should sleep for (1000/targetFps) -
         // (frameEnd - frameStart)
-        int toWait = (1000.0f / targetFps) - (frameEnd - frameStart);
+        int toWait = (int)((1000.0f / targetFps) - (frameEnd - frameStart));
         if (toWait > 0) {
             SDL_Delay(toWait);
         }
