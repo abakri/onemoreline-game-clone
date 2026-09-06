@@ -12,7 +12,7 @@ typedef struct {
     float centerY;
 } OrbitData;
 
-OrbitData newOrbitData() {
+OrbitData newOrbitData(void) {
     OrbitData o = {
         .startAngle = 0.f,
         .radius = 0.f,
@@ -29,7 +29,7 @@ int Physics_ApproximateCirclesColliding(float x1, float y1, float x2, float y2,
     float distSquared = (distX * distX) + (distY * distY);
     float radiiSumSquared = (rad1 + rad2) * (rad1 + rad2);
     return distSquared <= radiiSumSquared;
-};
+}
 
 int Physics_CheckCircleOutOfBoundsLeft(float centerX, float radius,
                                        float leftBound) {

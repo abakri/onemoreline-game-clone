@@ -60,18 +60,9 @@ typedef struct {
     bool gameOver;
     bool spaceDown;
     bool isOrbiting;
-    bool forwardStreakPowerupActive;
-
-    // This is used to track when hero is in forward streak powerup
-    // and has already collided into an obstacle triggering active powerup.
-    bool forwardStreakPowerupCollisionActivated;
-
-    int forwardProgressPowerupActiveTimerStart;
-    float forwardProgressTravelled;
-    float forwardProgressStreak;
     Hero hero;
     OrbitData currOrbit;
-    Camera camera; // Is it okay that we copy a camera in?
+    Camera *camera;
 } GameState;
 
 typedef struct {
@@ -104,14 +95,11 @@ Obs newObs(float x, float y, float rad) {
     return obs;
 }
 
-GameState newGameState(Camera camera) {
+GameState newGameState(Camera *camera) {
     GameState state = {
         .gameOver = false,
         .spaceDown = false,
         .isOrbiting = false,
-        .forwardProgressTravelled = 0.0f,
-        .forwardProgressStreak = 0.0f,
-        .forwardStreakPowerupActive = false,
         .currOrbit = newOrbitData(),
         .camera = camera,
     };
@@ -138,11 +126,6 @@ GameSettings newGameSettings(int width, int height) {
 
     return settings;
 }
-
-float NewRandomYInterval(GameSettings *settings) {
-    return OmlMath_RandRangeFloat(settings->minObsYInterval,
-                                  settings->maxObsYInterval);
-};
 
 // Deterministic Obs by sequence based on seed
 Obs ObsAt(int i, WorldGen *w) {
@@ -208,43 +191,37 @@ Obs GetClosestObsToPoint(float x, float y, WorldGen *worldGen) {
     return candidates[shortestDistanceObsIndex];
 }
 
-void GetObsStartingAtPosition(Obs *obsArray, float y, int numObs, WorldGen *w) {
-    int startingI =
-        (int)((y - w->obsStartingY - w->obsYJitter) / w->obsAverageYDiff);
-    // If the location is before the obs starting y, then we know 0 is the first
-    // obs.
-    if (y <= w->obsStartingY) {
-        startingI = 0;
-    }
-    for (int i = 0; i < numObs; i++) {
-        obsArray[i] = ObsAt(i + startingI, w);
-    }
-}
+// Get the lo and hi sequence for Obs given a lo and hi Y world position.
+// For example, you can get the sequences for obs that are on the currently
+// visible bounds of the screen. This helps to only fetch visible Obs.
+//
+// Pass in *iLo and *iHi, and this function will fill mutate those values.
+void ObsRangeForYs(WorldGen *w, float yLo, float yHi, int *iLo, int *iHi) {
+    float avgYDiff = w->obsAverageYDiff;
+    float yJitter = w->obsYJitter;
+    int lo = (int)((yLo - w->obsStartingY - yJitter) / avgYDiff) - 1;
+    int hi = (int)((yHi - w->obsStartingY + yJitter) / avgYDiff) + 1;
 
-void GetObsSoaStartingAtPosition(ObsSOA *obsSOA, float y, int numObs,
-                                 WorldGen *w) {
-    int startingI =
-        (int)((y - w->obsStartingY - w->obsYJitter) / w->obsAverageYDiff);
+    // Bound lo to 0
+    if (lo < 0) {
+        lo = 0;
+    }
 
-    // If the location is before the obs starting y, then we know 0 is the first
-    // obs.
-    if (y <= w->obsStartingY) {
-        startingI = 0;
+    // So looping from lo to hi is a no-op
+    if (hi < lo) {
+        hi = lo - 1;
     }
-    for (int i = 0; i < numObs; i++) {
-        Obs obs = ObsAt(startingI + i, w);
-        obsSOA->xVals[i] = obs.x;
-        obsSOA->yVals[i] = obs.y;
-        obsSOA->radVals[i] = obs.rad;
-    }
+    *iLo = lo;
+    *iHi = hi;
 }
 
 void updateGame(WorldGen *worldGen, GameSettings *settings, GameState *state,
-                Hero *hero, float dt, bool spaceKeyPressed, int time) {
+                Hero *hero, float timeSinceLastFrameSeconds,
+                int spaceKeyPressed, int timeSinceStartMs) {
     // Clamp dt to our max dt. If dt comes back super high, then we can
     // experience tunneling.
-    if (dt > MAX_DT) {
-        dt = MAX_DT;
+    if (timeSinceLastFrameSeconds > MAX_DT) {
+        timeSinceLastFrameSeconds = MAX_DT;
     }
 
     float screenWidthToWorld =
@@ -253,9 +230,9 @@ void updateGame(WorldGen *worldGen, GameSettings *settings, GameState *state,
     float rightVisibleBound = (screenWidthToWorld / 2);
     float screenHeightToWorld =
         Camera_ScreenToWorldMeasurement(state->camera, settings->height);
-    float upperVisibleBoundMeters = state->camera.y + (screenHeightToWorld / 2);
+    float upperVisibleBoundMeters = state->camera->y + (screenHeightToWorld / 2);
     float lowerVisibleBoundMeters =
-        state->camera.y + (screenHeightToWorld / 2) * -1;
+        state->camera->y + (screenHeightToWorld / 2) * -1;
 
     // --- HANDLE INPUT ---
     // The moment the spacebar is clicked
@@ -270,9 +247,6 @@ void updateGame(WorldGen *worldGen, GameSettings *settings, GameState *state,
     }
 
     // Fetch Obs
-    ObsSOA obsSoa = NewObsSOA();
-    GetObsSoaStartingAtPosition(&obsSoa, lowerVisibleBoundMeters, OBS_SOA_SIZE,
-                                worldGen);
 
     // If space is down, and we haven't started orbiting, do the necessary
     // processing to check if we should go into an orbiting state
@@ -285,7 +259,7 @@ void updateGame(WorldGen *worldGen, GameSettings *settings, GameState *state,
 
         // If there is something to orbit, handle
         if (found) {
-            state->currOrbit.radius = sqrtf(GetDistSquaredFrom(
+            state->currOrbit.radius = OmlMath_Sqrtf(GetDistSquaredFrom(
                 hero->x, hero->y, closestObs.x, closestObs.y));
 
             float dy = hero->y - closestObs.y;
@@ -301,11 +275,10 @@ void updateGame(WorldGen *worldGen, GameSettings *settings, GameState *state,
 
                 // Update current orbit
                 // Ensure that we latch on to the specific orbit x and y
-
                 state->currOrbit.centerX = closestObs.x;
                 state->currOrbit.centerY = closestObs.y;
                 state->currOrbit.startAngle = OmlMath_Atan2f(dy, dx);
-                state->currOrbit.startTime = time;
+                state->currOrbit.startTime = timeSinceStartMs;
                 state->currOrbit.direction = cross >= 0 ? 1 : -1;
             }
         }
@@ -318,7 +291,7 @@ void updateGame(WorldGen *worldGen, GameSettings *settings, GameState *state,
         float currAngle = Orbit_CalculateAngle(
             settings->speed, state->currOrbit.radius,
             state->currOrbit.startAngle, state->currOrbit.direction,
-            (float)(time - state->currOrbit.startTime) / 1000.0f);
+            (float)(timeSinceStartMs - state->currOrbit.startTime) / 1000.0f);
         Point currPosRelativeToObs = Orbit_CalculatePositionRelativeToTarget(
             currAngle, state->currOrbit.radius);
         float currXRelativeToObs = currPosRelativeToObs.x;
@@ -338,8 +311,8 @@ void updateGame(WorldGen *worldGen, GameSettings *settings, GameState *state,
     // Handle not-orbiting specific logic
     if (!state->isOrbiting) {
         // Update x and y
-        hero->y += hero->vy * dt;
-        hero->x += hero->vx * dt;
+        hero->y += hero->vy * timeSinceLastFrameSeconds;
+        hero->x += hero->vx * timeSinceLastFrameSeconds;
         // It's game over if we are not orbiting and we go out of bounds
         if (Physics_CheckCircleOutOfBoundsX(
                 hero->x, hero->rad, leftVisibleBound, rightVisibleBound)) {
@@ -347,13 +320,15 @@ void updateGame(WorldGen *worldGen, GameSettings *settings, GameState *state,
         }
     }
 
-    // Update obs locations
-    for (int i = 0; i < OBS_SOA_SIZE; i++) {
-        float currObsX = obsSoa.xVals[i];
-        float currObsY = obsSoa.yVals[i];
-        float currObsRad = obsSoa.radVals[i];
-        if (Physics_ApproximateCirclesColliding(
-                hero->x, hero->y, currObsX, currObsY, hero->rad, currObsRad)) {
+    // Check for collisions with obs
+    int obsILo, obsIHi;
+    ObsRangeForYs(worldGen, lowerVisibleBoundMeters, upperVisibleBoundMeters,
+                  &obsILo, &obsIHi);
+    for (int i = obsILo; i <= obsIHi; i++) {
+        Obs currObs = ObsAt(i, worldGen);
+        if (Physics_ApproximateCirclesColliding(hero->x, hero->y, currObs.x,
+                                                currObs.y, hero->rad,
+                                                currObs.rad)) {
 
             state->gameOver = true;
         }
@@ -362,12 +337,9 @@ void updateGame(WorldGen *worldGen, GameSettings *settings, GameState *state,
     // Update camera
     float worldHeight =
         Camera_ScreenToWorldMeasurement(state->camera, settings->height);
-    state->camera.x =
+    state->camera->x =
         0.25 * hero->x; // Camera x should be 25% of hero x diff relative to 0
-    state->camera.y =
+    state->camera->y =
         hero->y +
         (0.15 * worldHeight); // hero should be towards bottom of screen a bit
-
-    // Update our forward progress
-    state->forwardProgressTravelled = hero->y;
 }

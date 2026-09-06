@@ -11,6 +11,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #endif
+
+#ifdef OML_WASM
+#define WASM_EXPORT(name) __attribute__((export_name(name)))
+#define WASM_IMPORT(mod, name) __attribute__((import_module(mod), import_name(name)))
+#endif
+
 #include "oml_math.c"
 
 #define MAX_INT32 2147483647

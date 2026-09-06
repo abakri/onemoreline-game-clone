@@ -2,44 +2,45 @@
 
 #include "camera.c"
 #include "game.c"
-#include "obstacles.c"
 #include "physics.c"
+#include "time.h"
 
 // TODO: A lot of the drawing here will likely be replaced with game assets
 void renderGame(SDL_Renderer *renderer, WorldGen *worldGen, GameState *state,
                 GameSettings *settings, Hero *hero, TTF_Text *scoreTextObj) {
     // Draw boundaries on the left and right
-    float screenWidthToWorld =
+    float screenWidthMeters =
         Camera_ScreenToWorldMeasurement(state->camera, settings->width);
-    float screenHeightToWorld =
+    float screenHeightMeters =
         Camera_ScreenToWorldMeasurement(state->camera, settings->height);
 
-    float leftBound = (screenWidthToWorld / 2) * -1;
-    float rightBound = (screenWidthToWorld / 2);
-    float upperBound = state->camera.y + (screenHeightToWorld / 2);
-    float lowerBound = state->camera.y + (screenHeightToWorld / 2) * -1;
+    float leftBoundMeters = (screenWidthMeters / 2) * -1;
+    float rightBoundMeters = (screenWidthMeters / 2);
+    float upperVisibleBoundMeters = state->camera->y + (screenHeightMeters / 2);
+    float lowerVisibleBoundMeters =
+        state->camera->y + (screenHeightMeters / 2) * -1;
 
-    float leftScreenX =
-        Camera_WorldPositionToScreen(state->camera, leftBound, 0,
+    float leftScreenPixelsX =
+        Camera_WorldPositionToScreen(state->camera, leftBoundMeters, 0,
                                      settings->width, settings->height)
             .x -
         1;
-    float rightScreenX =
-        Camera_WorldPositionToScreen(state->camera, rightBound, 0,
+    float rightScreenPixelsX =
+        Camera_WorldPositionToScreen(state->camera, rightBoundMeters, 0,
                                      settings->width, settings->height)
             .x;
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // WHITE
     // Left boundary
-    SDL_RenderLine(renderer, leftScreenX,
+    SDL_RenderLine(renderer, leftScreenPixelsX,
                    0, // top of screen
-                   leftScreenX,
+                   leftScreenPixelsX,
                    settings->height // bottom of screen
     );
 
     // Right boundary
-    SDL_RenderLine(renderer, rightScreenX,
+    SDL_RenderLine(renderer, rightScreenPixelsX,
                    0, // top of screen
-                   rightScreenX,
+                   rightScreenPixelsX,
                    settings->height // bottom of screen
     );
 
@@ -56,10 +57,8 @@ void renderGame(SDL_Renderer *renderer, WorldGen *worldGen, GameState *state,
     Draw_DrawFilledCircle(renderer, heroScreenPos.x, heroScreenPos.y,
                           heroScreenRad);
 
-    ObsSOA obsSoa = NewObsSOA();
-    float lowerVisibleBound = state->camera.y + (screenHeightToWorld / 2) * -1;
-    GetObsSoaStartingAtPosition(&obsSoa, lowerVisibleBound, OBS_SOA_SIZE,
-                                worldGen);
+    float upperVisibleBound = state->camera->y + (screenHeightMeters / 2);
+    float lowerVisibleBound = state->camera->y + (screenHeightMeters / 2) * -1;
 
     // Draw line to signal orbit
     Obs closestObs = GetClosestObsToPoint(hero->x, hero->y, worldGen);
@@ -85,27 +84,27 @@ void renderGame(SDL_Renderer *renderer, WorldGen *worldGen, GameState *state,
     }
 
     // Draw the obstacles
-    // TODO: Only draw obstacles that are on the screen
-    for (int i = 0; i < OBS_SOA_SIZE; i++) {
-        float currObsX = obsSoa.xVals[i];
-        float currObsY = obsSoa.yVals[i];
-        float currObsRad = obsSoa.radVals[i];
+    int iLo, iHi; // Sequence values for Obs that are on the screen
+    ObsRangeForYs(worldGen, lowerVisibleBound, upperVisibleBound, &iLo, &iHi);
+    for (int i = iLo; i <= iHi; i++) {
+        Obs currObs = ObsAt(i, worldGen);
         Point currObsScreenPos =
-            Camera_WorldPositionToScreen(state->camera, currObsX, currObsY,
+            Camera_WorldPositionToScreen(state->camera, currObs.x, currObs.y,
                                          settings->width, settings->height);
         float currObsScreenRad =
-            Camera_WorldMeasurementToScreen(state->camera, currObsRad);
+            Camera_WorldMeasurementToScreen(state->camera, currObs.rad);
         // Only render if the obs should be on the screen
-        if (Physics_CheckCircleWithinRect(currObsX, currObsY, currObsRad,
-                                          leftBound, rightBound, lowerBound,
-                                          upperBound)) {
+        if (Physics_CheckCircleWithinRect(currObs.x, currObs.y, currObs.rad,
+                                          leftBoundMeters, rightBoundMeters,
+                                          lowerVisibleBoundMeters,
+                                          upperVisibleBoundMeters)) {
             SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // WHITE
             Draw_DrawFilledCircle(renderer, currObsScreenPos.x,
                                   currObsScreenPos.y, currObsScreenRad);
         }
     }
 
-    int forwardProgressAsInt = (int)state->forwardProgressTravelled;
+    int forwardProgressAsInt = (int)hero->y;
     char str[20];
     snprintf(str, sizeof(str), "%d", forwardProgressAsInt);
 
@@ -115,7 +114,7 @@ void renderGame(SDL_Renderer *renderer, WorldGen *worldGen, GameState *state,
     SDL_RenderPresent(renderer);
 }
 
-int main() {
+int main(void) {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         SDL_Log("SDL_Init failed: %s", SDL_GetError());
         return 1;
@@ -124,8 +123,8 @@ int main() {
     SDL_Renderer *renderer = NULL;
     SDL_Window *window = NULL;
 
-    int windowWidth = 500;
-    int windowHeight = 1000;
+    int windowWidth = 360;
+    int windowHeight = 720;
 
     if (!SDL_CreateWindowAndRenderer("OML", windowWidth, windowHeight, 0,
                                      &window, &renderer)) {
@@ -147,8 +146,9 @@ int main() {
     TTF_Text *scoreTextObj =
         TTF_CreateText(textEngine, font, "Hello, world", 0);
 
-    // Generate world
-    uint32_t seed = 400;
+    // Generate world (seeded based on current time)
+    time_t currentTime = time(NULL);
+    uint32_t seed = (uint32_t)currentTime;
     WorldGen worldGen = newWorldGen(seed);
 
     // Init game
@@ -158,7 +158,7 @@ int main() {
         .y = 0,
         .pixelsPerMeter = PIXELS_PER_METER,
     };
-    GameState state = newGameState(camera);
+    GameState state = newGameState(&camera);
 
     // Generate Hero
     Hero hero = {
@@ -220,6 +220,8 @@ int main() {
         }
     }
 
+    TTF_DestroyText(scoreTextObj);
+    TTF_DestroyRendererTextEngine(textEngine);
     TTF_CloseFont(font);
     TTF_Quit();
     SDL_DestroyRenderer(renderer);

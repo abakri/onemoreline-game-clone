@@ -9,7 +9,7 @@ typedef struct {
     float radVals[OBS_SOA_SIZE]; // array of radius values
 } ObsSOA;
 
-ObsSOA NewObsSOA() {
-    ObsSOA result = {};
+ObsSOA NewObsSOA(void) {
+    ObsSOA result = {0};
     return result;
 }
