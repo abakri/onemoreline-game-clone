@@ -24,14 +24,20 @@ let isSpaceKeyDown = false
 // TODO: pointer events for phone too
 document.addEventListener("keydown", keyInput)
 document.addEventListener("keyup", keyInput)
+document.addEventListener("pointerdown", keyInput)
+document.addEventListener("pointerup", keyInput)
 
 function keyInput(event) {
   if (event.repeat) return event.preventDefault() // Ignore repeat keystrokes
 
-  if (event.type === "keydown") {
+  if (event.type === "keydown" || event.type === "pointerdown") {
     isSpaceKeyDown = true
-  } else if (event.type === "keyup") {
-    isSpaceKeyDown = false
+  } else if (
+    event.type === "keyup"
+    || event.type === "pointerup"
+    || event.type === "pointercancel"
+  ) {
+    isSpaceKeyDown = false;
   }
 }
 

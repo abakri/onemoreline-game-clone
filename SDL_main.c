@@ -44,9 +44,6 @@ void renderGame(SDL_Renderer *renderer, WorldGen *worldGen, GameState *state,
                    settings->height // bottom of screen
     );
 
-    // TODO: Extract this out when we support black holes
-    // bool blackhole = false;
-
     // Draw character
     Point heroScreenPos = Camera_WorldPositionToScreen(
         state->camera, hero->x, hero->y, settings->width, settings->height);
