@@ -11,6 +11,11 @@ const SPACE_KEY_DOWN_IDX = 9
 const GAME_OVER_IDX = 10;
 const ORBITING_X_IDX = 11;
 const ORBITING_Y_IDX = 12;
+const LEFT_BOUNDARY_X_IDX = 13;
+const RIGHT_BOUNDARY_X_IDX = 14;
+const SCORE_IDX = 15;
+const SCREEN_WIDTH_IDX = 16;
+const SCREEN_HEIGHT_IDX = 17;
 
 let CANVAS = null
 let CTX = null
@@ -57,27 +62,27 @@ function onAnimationFrame() {
     isSpaceKeyDown,
   )
 
+  const screenWidth = MEMORY.STATE_BUFFER[SCREEN_WIDTH_IDX] | 0
+  const screenHeight = MEMORY.STATE_BUFFER[SCREEN_HEIGHT_IDX] | 0
+
   // Draw the background
-  CTX.clearRect(0, 0, CANVAS.width, CANVAS.height)
+  CTX.clearRect(0, 0, screenWidth, screenHeight)
   CTX.fillStyle = "#000000" // BLACK
-  CTX.fillRect(0, 0, CANVAS.width, CANVAS.height)
+  CTX.fillRect(0, 0, screenWidth, screenHeight)
 
   // Draw the left and right boundaries
-  const screenWidthMeters = WASM.pixelsToMeters(CANVAS.width)
-  const rightBoundXMeters = (screenWidthMeters / 2)
-  const leftBoundXMeters = (screenWidthMeters / 2) * -1
-  const leftBoundXPixels = WASM.metersXToPixels(leftBoundXMeters, CANVAS.width, CANVAS.height)
-  const rightBoundXPixels = WASM.metersXToPixels(rightBoundXMeters, CANVAS.width, CANVAS.height)
+  const leftBoundaryX = MEMORY.STATE_BUFFER[LEFT_BOUNDARY_X_IDX]
+  const rightBoundaryX = MEMORY.STATE_BUFFER[RIGHT_BOUNDARY_X_IDX]
 
   CTX.beginPath()
-  CTX.moveTo(leftBoundXPixels, 0) // "top left"
-  CTX.lineTo(leftBoundXPixels, CANVAS.height) // "bottom left"
+  CTX.moveTo(leftBoundaryX, 0) // "top left"
+  CTX.lineTo(leftBoundaryX, screenHeight) // "bottom left"
   CTX.strokeStyle = "#ffffff"
   CTX.stroke()
 
   CTX.beginPath()
-  CTX.moveTo(rightBoundXPixels, 0) // "top right"
-  CTX.lineTo(rightBoundXPixels, CANVAS.height) // "bottom right"
+  CTX.moveTo(rightBoundaryX, 0) // "top right"
+  CTX.lineTo(rightBoundaryX, screenHeight) // "bottom right"
   CTX.strokeStyle = "#ffffff"
   CTX.stroke()
 
@@ -87,37 +92,9 @@ function onAnimationFrame() {
   const heroRad = MEMORY.STATE_BUFFER[HERO_RAD_IDX]
 
   CTX.beginPath()
-  CTX.arc(
-    WASM.metersXToPixels(heroX, CANVAS.width, CANVAS.height),
-    WASM.metersYToPixels(heroY, CANVAS.width, CANVAS.height),
-    WASM.metersToPixels(heroRad),
-    0,
-    2 * Math.PI,
-  )
+  CTX.arc(heroX, heroY, heroRad, 0, 2 * Math.PI)
   CTX.fillStyle = "#ffffff"
   CTX.fill()
-
-  // Draw the obstacles
-  for (let i = 0; i < 20; i++) {
-    const obsX = MEMORY.OBS_X_BUFFER[i]
-    const obsY = MEMORY.OBS_Y_BUFFER[i]
-    const obsRad = MEMORY.OBS_RAD_BUFFER[i]
-
-    // If there is no valid obstacle in the slot, break
-    // since the buffer will have no more valid data
-    if (obsRad <= 0) break
-
-    CTX.beginPath()
-    CTX.arc(
-      WASM.metersXToPixels(obsX, CANVAS.width, CANVAS.height),
-      WASM.metersYToPixels(obsY, CANVAS.width, CANVAS.height),
-      WASM.metersToPixels(obsRad),
-      0,
-      2 * Math.PI,
-    )
-    CTX.fillStyle = "#ffffff"
-    CTX.fill()
-  }
 
   // Draw orbit lines
   // This properly interprets the 32 bit information as a signed int
@@ -127,14 +104,8 @@ function onAnimationFrame() {
   const closestObsY = MEMORY.STATE_BUFFER[CLOSEST_OBS_Y_IDX];
   if (stateSpaceDown === 1 && isOrbiting === 0) {
     CTX.beginPath()
-    CTX.moveTo(
-      WASM.metersXToPixels(heroX, CANVAS.width, CANVAS.height),
-      WASM.metersYToPixels(heroY, CANVAS.width, CANVAS.height),
-    )
-    CTX.lineTo(
-      WASM.metersXToPixels(closestObsX, CANVAS.width, CANVAS.height),
-      WASM.metersYToPixels(closestObsY, CANVAS.width, CANVAS.height),
-    )
+    CTX.moveTo(heroX, heroY)
+    CTX.lineTo(closestObsX, closestObsY)
     CTX.strokeStyle = "#ff0000" // RED
     CTX.stroke()
   }
@@ -143,17 +114,33 @@ function onAnimationFrame() {
     const orbitX = MEMORY.STATE_BUFFER[ORBITING_X_IDX];
     const orbitY = MEMORY.STATE_BUFFER[ORBITING_Y_IDX];
     CTX.beginPath()
-    CTX.moveTo(
-      WASM.metersXToPixels(heroX, CANVAS.width, CANVAS.height),
-      WASM.metersYToPixels(heroY, CANVAS.width, CANVAS.height),
-    )
-    CTX.lineTo(
-      WASM.metersXToPixels(orbitX, CANVAS.width, CANVAS.height),
-      WASM.metersYToPixels(orbitY, CANVAS.width, CANVAS.height),
-    )
+    CTX.moveTo(heroX, heroY)
+    CTX.lineTo(orbitX, orbitY)
     CTX.strokeStyle = "#ff0000" // RED
     CTX.stroke()
   }
+
+
+  // Draw the obstacles
+  for (let i = 0; i < MEMORY.OBS_X_BUFFER.length; i++) {
+    const obsX = MEMORY.OBS_X_BUFFER[i]
+    const obsY = MEMORY.OBS_Y_BUFFER[i]
+    const obsRad = MEMORY.OBS_RAD_BUFFER[i]
+
+    // If there is no valid obstacle in the slot, break
+    // since the buffer will have no more valid data
+    if (obsRad <= 0) break
+
+    CTX.beginPath()
+    CTX.arc(obsX, obsY, obsRad, 0, 2 * Math.PI)
+    CTX.fillStyle = "#ffffff"
+    CTX.fill()
+  }
+
+  // Draw score
+  const score = MEMORY.STATE_BUFFER[SCORE_IDX] | 0;
+  CTX.font = "24px serif";
+  CTX.fillText(score.toString(), 20, 35);
 
   const gameOver = MEMORY.STATE_BUFFER[GAME_OVER_IDX]
   if (!gameOver) {
@@ -191,17 +178,33 @@ async function startGame() {
 
     const uint32Epoch = Math.floor(Date.now() / 1000) >>> 0
 
-    instance.exports.init(
+    WASM.init(
       uint32Epoch, // seed
       CANVAS.width, // game width pixels
       CANVAS.height, // game height pixels
     )
 
     // TODO: export buffer sizes from wasm 
-    MEMORY.STATE_BUFFER = new Float32Array(WASM.memory.buffer, WASM.STATE_BUFFER.value, 13);
-    MEMORY.OBS_X_BUFFER = new Float32Array(WASM.memory.buffer, WASM.OBS_X_BUFFER.value, 20);
-    MEMORY.OBS_Y_BUFFER = new Float32Array(WASM.memory.buffer, WASM.OBS_Y_BUFFER.value, 20);
-    MEMORY.OBS_RAD_BUFFER = new Float32Array(WASM.memory.buffer, WASM.OBS_RAD_BUFFER.value, 20);
+    MEMORY.STATE_BUFFER = new Float32Array(
+      WASM.memory.buffer,
+      WASM.stateBufferPointer(),
+      WASM.stateBufferSize(),
+    );
+    MEMORY.OBS_X_BUFFER = new Float32Array(
+      WASM.memory.buffer,
+      WASM.obsXBufferPointer(),
+      WASM.obsBufferSize(),
+    );
+    MEMORY.OBS_Y_BUFFER = new Float32Array(
+      WASM.memory.buffer,
+      WASM.obsYBufferPointer(),
+      WASM.obsBufferSize(),
+    );
+    MEMORY.OBS_RAD_BUFFER = new Float32Array(
+      WASM.memory.buffer,
+      WASM.obsRadBufferPointer(),
+      WASM.obsBufferSize(),
+    );
 
     startTimeMs = performance.now();
     lastFrameTimeMs = performance.now();

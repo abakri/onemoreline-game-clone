@@ -1,6 +1,5 @@
 libraylib.a
 sdl_main
-wasm_main
 .cache/
-/web/game.wasm
+web/game.wasm
 .DS_Store

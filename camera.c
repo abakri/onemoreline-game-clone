@@ -2,8 +2,13 @@
 #include "types.h"
 
 // Converts world position to screen position
-Point Camera_WorldPositionToScreen(Camera *camera, float worldX, float worldY,
-                                   float screenWidth, float screenHeight) {
+Point Camera_WorldPositionToScreen(
+    Camera *camera,
+    float worldX,
+    float worldY,
+    float screenWidth,
+    float screenHeight
+) {
     // Camera center is at the middle of the screen, meaning left is negative X
     // and right is positive X, and same with Y values.
     Point p = {

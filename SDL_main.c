@@ -1,109 +1,68 @@
-#include "types.h"
-
-#include "camera.c"
+#include "client.c"
 #include "game.c"
-#include "physics.c"
 #include "time.h"
 
 // TODO: A lot of the drawing here will likely be replaced with game assets
-void renderGame(SDL_Renderer *renderer, WorldGen *worldGen, GameState *state,
-                GameSettings *settings, Hero *hero, TTF_Text *scoreTextObj) {
+void renderGame(SDL_Renderer *renderer, ClientData *clientData,
+                TTF_Text *scoreTextObj) {
+    // Since state buffer is a float array, we must cast as int
+    int screenHeight = (int)clientData->STATE_BUFFER[SCREEN_HEIGHT_IDX];
+
     // Draw boundaries on the left and right
-    float screenWidthMeters =
-        Camera_ScreenToWorldMeasurement(state->camera, settings->width);
-    float screenHeightMeters =
-        Camera_ScreenToWorldMeasurement(state->camera, settings->height);
-
-    float leftBoundMeters = (screenWidthMeters / 2) * -1;
-    float rightBoundMeters = (screenWidthMeters / 2);
-    float upperVisibleBoundMeters = state->camera->y + (screenHeightMeters / 2);
-    float lowerVisibleBoundMeters =
-        state->camera->y + (screenHeightMeters / 2) * -1;
-
-    float leftScreenPixelsX =
-        Camera_WorldPositionToScreen(state->camera, leftBoundMeters, 0,
-                                     settings->width, settings->height)
-            .x -
-        1;
-    float rightScreenPixelsX =
-        Camera_WorldPositionToScreen(state->camera, rightBoundMeters, 0,
-                                     settings->width, settings->height)
-            .x;
+    float leftBoundaryX = clientData->STATE_BUFFER[LEFT_BOUNDARY_X_IDX];
+    float rightBoundaryX = clientData->STATE_BUFFER[RIGHT_BOUNDARY_X_IDX];
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // WHITE
-    // Left boundary
-    SDL_RenderLine(renderer, leftScreenPixelsX,
+    SDL_RenderLine(renderer, leftBoundaryX,
                    0, // top of screen
-                   leftScreenPixelsX,
-                   settings->height // bottom of screen
+                   leftBoundaryX,
+                   screenHeight // bottom of screen
     );
-
-    // Right boundary
-    SDL_RenderLine(renderer, rightScreenPixelsX,
+    SDL_RenderLine(renderer, rightBoundaryX,
                    0, // top of screen
-                   rightScreenPixelsX,
-                   settings->height // bottom of screen
-    );
+                   rightBoundaryX, screenHeight);
 
     // Draw character
-    Point heroScreenPos = Camera_WorldPositionToScreen(
-        state->camera, hero->x, hero->y, settings->width, settings->height);
-    float heroScreenRad =
-        Camera_WorldMeasurementToScreen(state->camera, hero->rad);
-
+    float heroX = clientData->STATE_BUFFER[HERO_X_IDX];
+    float heroY = clientData->STATE_BUFFER[HERO_Y_IDX];
+    float heroRad = clientData->STATE_BUFFER[HERO_RAD_IDX];
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // WHITE
-    Draw_DrawFilledCircle(renderer, heroScreenPos.x, heroScreenPos.y,
-                          heroScreenRad);
+    Draw_DrawFilledCircle(renderer, heroX, heroY, heroRad);
 
-    float upperVisibleBound = state->camera->y + (screenHeightMeters / 2);
-    float lowerVisibleBound = state->camera->y + (screenHeightMeters / 2) * -1;
+    // Draw orbit lines
+    int stateSpaceDown = (int)clientData->STATE_BUFFER[SPACE_KEY_DOWN_IDX];
+    int isOrbiting = (int)clientData->STATE_BUFFER[IS_ORBITING_IDX];
+    float closestObsX = clientData->STATE_BUFFER[CLOSEST_OBS_X_IDX];
+    float closestObsY = clientData->STATE_BUFFER[CLOSEST_OBS_Y_IDX];
 
-    // Draw line to signal orbit
-    Obs closestObs = GetClosestObsToPoint(hero->x, hero->y, worldGen);
-    Point closestObsScreenPos =
-        Camera_WorldPositionToScreen(state->camera, closestObs.x, closestObs.y,
-                                     settings->width, settings->height);
-    // Use this to always see the closest obs
-    // SDL_SetRenderDrawColor(renderer, 0, 0, 255, 255); // BLUE
-    // SDL_RenderLine(renderer, heroScreenPos.x, heroScreenPos.y,
-    //                closestObsScreenPos.x, closestObsScreenPos.y);
-
-    if (state->spaceDown && !state->isOrbiting) {
+    if (stateSpaceDown && !isOrbiting) {
         SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // RED
-        SDL_RenderLine(renderer, heroScreenPos.x, heroScreenPos.y,
-                       closestObsScreenPos.x, closestObsScreenPos.y);
-    } else if (state->isOrbiting) {
-        Point orbitCenterScreenPos = Camera_WorldPositionToScreen(
-            state->camera, state->currOrbit.centerX, state->currOrbit.centerY,
-            settings->width, settings->height);
+        SDL_RenderLine(renderer, heroX, heroY, closestObsX, closestObsY);
+    }
+    if (isOrbiting) {
+        float orbitX = clientData->STATE_BUFFER[ORBITING_X_IDX];
+        float orbitY = clientData->STATE_BUFFER[ORBITING_Y_IDX];
         SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // RED
-        SDL_RenderLine(renderer, heroScreenPos.x, heroScreenPos.y,
-                       orbitCenterScreenPos.x, orbitCenterScreenPos.y);
+        SDL_RenderLine(renderer, heroX, heroY, orbitX, orbitY);
     }
 
     // Draw the obstacles
-    int iLo, iHi; // Sequence values for Obs that are on the screen
-    ObsRangeForYs(worldGen, lowerVisibleBound, upperVisibleBound, &iLo, &iHi);
-    for (int i = iLo; i <= iHi; i++) {
-        Obs currObs = ObsAt(i, worldGen);
-        Point currObsScreenPos =
-            Camera_WorldPositionToScreen(state->camera, currObs.x, currObs.y,
-                                         settings->width, settings->height);
-        float currObsScreenRad =
-            Camera_WorldMeasurementToScreen(state->camera, currObs.rad);
-        // Only render if the obs should be on the screen
-        if (Physics_CheckCircleWithinRect(currObs.x, currObs.y, currObs.rad,
-                                          leftBoundMeters, rightBoundMeters,
-                                          lowerVisibleBoundMeters,
-                                          upperVisibleBoundMeters)) {
-            SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // WHITE
-            Draw_DrawFilledCircle(renderer, currObsScreenPos.x,
-                                  currObsScreenPos.y, currObsScreenRad);
-        }
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // WHITE
+    for (int i = 0; i < OBS_SOA_BUFFER_SIZE; i++) {
+        float obsX = clientData->OBS_X_BUFFER[i];
+        float obsY = clientData->OBS_Y_BUFFER[i];
+        float obsRad = clientData->OBS_RAD_BUFFER[i];
+
+        // If there is no valid obstacle in the slot, break
+        // since the buffer will have no more valid data
+        if (obsRad <= 0)
+            break;
+
+        Draw_DrawFilledCircle(renderer, obsX, obsY, obsRad);
     }
 
-    int forwardProgressAsInt = (int)hero->y;
+    int forwardProgress = (int)clientData->STATE_BUFFER[SCORE_IDX];
     char str[20];
-    snprintf(str, sizeof(str), "%d", forwardProgressAsInt);
+    snprintf(str, sizeof(str), "%d", forwardProgress);
 
     TTF_SetTextString(scoreTextObj, str, 0);
     TTF_DrawRendererText(scoreTextObj, 20, 20);
@@ -146,33 +105,22 @@ int main(void) {
     // Generate world (seeded based on current time)
     time_t currentTime = time(NULL);
     uint32_t seed = (uint32_t)currentTime;
-    WorldGen worldGen = newWorldGen(seed);
 
     // Init game
-    GameSettings settings = newGameSettings(windowWidth, windowHeight);
-    Camera camera = {
-        .x = 0,
-        .y = 0,
-        .pixelsPerMeter = PIXELS_PER_METER,
-    };
-    GameState state = newGameState(&camera);
+    Game game;
+    createGame(&game, windowWidth, windowHeight, seed);
 
-    // Generate Hero
-    Hero hero = {
-        .x = 0,
-        .y = 0,
-        .vx = 0,
-        .vy = settings.speed,
-        .rad = 0.3,
-    };
+    // Create client data
+    ClientData clientData;
+    updateClientData(&game, &clientData);
 
-    float targetFps = 120;
+    float targetFps = 200;
     int quit = 0;
     SDL_Event event;
     bool spacePressed = false;
 
     uint64_t lastFrameTime = SDL_GetTicks();
-    while (!quit && !state.gameOver) {
+    while (!quit && !game.gameOver) {
         // INITIALIZE FRAME
         uint64_t frameStart = SDL_GetTicks();
 
@@ -200,9 +148,9 @@ int main(void) {
         // Black background
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
         SDL_RenderClear(renderer);
-        updateGame(&worldGen, &settings, &state, &hero, dt, spacePressed,
-                   SDL_GetTicks());
-        renderGame(renderer, &worldGen, &state, &settings, &hero, scoreTextObj);
+        updateGame(&game, dt, spacePressed, SDL_GetTicks());
+        updateClientData(&game, &clientData);
+        renderGame(renderer, &clientData, scoreTextObj);
 
         // ------ END GAME AND RENDERING -------
         // End of frame processing
