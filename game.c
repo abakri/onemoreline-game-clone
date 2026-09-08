@@ -43,8 +43,8 @@ typedef struct {
     float maxObsYInterval;
     float obsYInterval;
     float startingObsY;
-    int width;
-    int height;
+    int screenWidthPx;
+    int screenHeightPx;
     float speed;
     float horizontalCameraMovement;
 
@@ -58,19 +58,22 @@ typedef struct {
 } Game;
 
 void createGame(Game *game, int screenWidth, int screenHeight, uint32_t seed) {
-    float heroSpeed = 20.0f; // DEFAULT HERO SPEED
+    float heroSpeed = 20.0f;       // DEFAULT HERO SPEED
+    float gameWidthMeters = 10.0f; // DEFAULT GAME VALID AREA WIDTH
 
     *game = (Game){
         .worldGen =
             (WorldGen){
                 .seed = seed,
-                .obsStartingY = 20.0f,
-                .obsAverageYDiff = 8.5f,
-                .obsYJitter = 1.75f,
-                .obsMinRadius = 0.2f,
-                .obsMaxRadius = 0.8f,
-                .obsXMargin = 1.0f,
-                .width = 10.0f,
+                .obsStartingY = 30.0f,
+                .obsAverageYDiff = 8.5f, // This shouldn't depend on anything
+                .obsYJitter = 1.75f,     // This shouldn't depend on anything
+                .obsMinRadius = 0.027f * gameWidthMeters,
+                .obsMaxRadius =
+                    0.11f * gameWidthMeters, // for 7.2m width, this is 11%
+                .obsXMargin =
+                    0.13f * gameWidthMeters, // for 7.2m width, this is 13%
+                .width = gameWidthMeters,
             },
         .minObsRadius = 0.2f,
         .maxObsRadius = 0.8f,
@@ -79,8 +82,8 @@ void createGame(Game *game, int screenWidth, int screenHeight, uint32_t seed) {
         .obsYInterval = 10.0f,
         .startingObsY = 20.0f,
         .horizontalCameraMovement = 0.15f,
-        .width = screenWidth,
-        .height = screenHeight,
+        .screenWidthPx = screenWidth,
+        .screenHeightPx = screenHeight,
         .speed = heroSpeed,
         .gameOver = false,
         .spaceDown = false,
@@ -199,12 +202,11 @@ void updateGame(Game *game, float timeSinceLastFrameSeconds,
         timeSinceLastFrameSeconds = MAX_DT;
     }
 
-    float screenWidthToWorld =
-        Camera_ScreenToWorldMeasurement(&game->camera, game->width);
-    float leftVisibleBound = (screenWidthToWorld / 2) * -1;
-    float rightVisibleBound = (screenWidthToWorld / 2);
+    float leftBoundX = (game->worldGen.width / 2) * -1;
+    float rightBoundX = (game->worldGen.width / 2);
+
     float screenHeightToWorld =
-        Camera_ScreenToWorldMeasurement(&game->camera, game->height);
+        Camera_ScreenToWorldMeasurement(&game->camera, game->screenHeightPx);
     float upperVisibleBoundMeters = game->camera.y + (screenHeightToWorld / 2);
     float lowerVisibleBoundMeters =
         game->camera.y + (screenHeightToWorld / 2) * -1;
@@ -297,8 +299,7 @@ void updateGame(Game *game, float timeSinceLastFrameSeconds,
     if (!game->spaceDown && !game->isOrbiting) {
         // It's game over if we are not orbiting and we go out of bounds
         if (Physics_CheckCircleOutOfBoundsX(game->hero.x, game->hero.rad,
-                                            leftVisibleBound,
-                                            rightVisibleBound)) {
+                                            leftBoundX, rightBoundX)) {
             game->gameOver = true;
         }
     }
@@ -319,7 +320,7 @@ void updateGame(Game *game, float timeSinceLastFrameSeconds,
 
     // Update camera
     float worldHeight =
-        Camera_ScreenToWorldMeasurement(&game->camera, game->height);
+        Camera_ScreenToWorldMeasurement(&game->camera, game->screenHeightPx);
     game->camera.x =
         0.25 *
         game->hero.x; // Camera x should be 25% of hero x diff relative to 0

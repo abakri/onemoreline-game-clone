@@ -79,7 +79,7 @@ int main(void) {
     SDL_Renderer *renderer = NULL;
     SDL_Window *window = NULL;
 
-    int windowWidth = 360;
+    int windowWidth = 1000;
     int windowHeight = 720;
 
     if (!SDL_CreateWindowAndRenderer("OML", windowWidth, windowHeight, 0,

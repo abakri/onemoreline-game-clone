@@ -36,12 +36,12 @@ typedef struct {
 
 void updateClientData(Game *game, ClientData *clientData) {
     // Populate screen width and height
-    clientData->STATE_BUFFER[SCREEN_WIDTH_IDX] = game->width;
-    clientData->STATE_BUFFER[SCREEN_HEIGHT_IDX] = game->height;
+    clientData->STATE_BUFFER[SCREEN_WIDTH_IDX] = game->screenWidthPixels;
+    clientData->STATE_BUFFER[SCREEN_HEIGHT_IDX] = game->screenHeightPx;
 
     // Convert hero data to pixels
     Point heroPositionPx = Camera_WorldPositionToScreen(
-        &game->camera, game->hero.x, game->hero.y, game->width, game->height);
+        &game->camera, game->hero.x, game->hero.y, game->screenWidthPixels, game->screenHeightPx);
     clientData->STATE_BUFFER[HERO_X_IDX] = heroPositionPx.x;
     clientData->STATE_BUFFER[HERO_Y_IDX] = heroPositionPx.y;
     clientData->STATE_BUFFER[HERO_RAD_IDX] =
@@ -56,8 +56,8 @@ void updateClientData(Game *game, ClientData *clientData) {
     Obs closestObsToHero =
         GetClosestObsToPoint(game->hero.x, game->hero.y, &game->worldGen);
     Point closestObsPositionPx = Camera_WorldPositionToScreen(
-        &game->camera, closestObsToHero.x, closestObsToHero.y, game->width,
-        game->height);
+        &game->camera, closestObsToHero.x, closestObsToHero.y, game->screenWidthPixels,
+        game->screenHeightPx);
     clientData->STATE_BUFFER[CLOSEST_OBS_X_IDX] = closestObsPositionPx.x;
     clientData->STATE_BUFFER[CLOSEST_OBS_Y_IDX] = closestObsPositionPx.y;
 
@@ -69,7 +69,7 @@ void updateClientData(Game *game, ClientData *clientData) {
     // TODO: We won't need this if we implement the above
     Point orbitPositionPx = Camera_WorldPositionToScreen(
         &game->camera, game->currOrbit.centerX, game->currOrbit.centerY,
-        game->width, game->height);
+        game->screenWidthPixels, game->screenHeightPx);
     clientData->STATE_BUFFER[ORBITING_X_IDX] = orbitPositionPx.x;
     clientData->STATE_BUFFER[ORBITING_Y_IDX] = orbitPositionPx.y;
 
@@ -77,19 +77,16 @@ void updateClientData(Game *game, ClientData *clientData) {
     clientData->STATE_BUFFER[GAME_OVER_IDX] = game->gameOver;
 
     // Add pixel boundary positions for the left and right
-    float screenWidthMeters =
-        Camera_ScreenToWorldMeasurement(&game->camera, game->width);
-
-    float leftBoundMeters = (screenWidthMeters / 2) * -1;
-    float rightBoundMeters = (screenWidthMeters / 2);
-    float leftScreenPixelsX =
-        Camera_WorldPositionToScreen(&game->camera, leftBoundMeters,
-                                     leftBoundMeters, game->width, game->height)
-            .x -
-        1;
+    float leftBoundXMeters = (game->worldGen.width / 2) * -1;
+    float rightBoundXMeters = (game->worldGen.width / 2);
+    float leftScreenPixelsX = Camera_WorldPositionToScreen(
+                                  &game->camera, leftBoundXMeters,
+                                  leftBoundXMeters, game->screenWidthPixels, game->screenHeightPx)
+                                  .x -
+                              1;
     float rightScreenPixelsX = Camera_WorldPositionToScreen(
-                                   &game->camera, rightBoundMeters,
-                                   rightBoundMeters, game->width, game->height)
+                                   &game->camera, rightBoundXMeters,
+                                   rightBoundXMeters, game->screenWidthPixels, game->screenHeightPx)
                                    .x;
     clientData->STATE_BUFFER[LEFT_BOUNDARY_X_IDX] = leftScreenPixelsX;
     clientData->STATE_BUFFER[RIGHT_BOUNDARY_X_IDX] = rightScreenPixelsX;
@@ -99,7 +96,7 @@ void updateClientData(Game *game, ClientData *clientData) {
 
     // ----- UPDATE THE OBS BUFFERS
     float screenHeightToWorld =
-        Camera_ScreenToWorldMeasurement(&game->camera, game->height);
+        Camera_ScreenToWorldMeasurement(&game->camera, game->screenHeightPx);
     float upperVisibleBoundMeters = game->camera.y + (screenHeightToWorld / 2);
     float lowerVisibleBoundMeters =
         game->camera.y + (screenHeightToWorld / 2) * -1;
@@ -121,7 +118,7 @@ void updateClientData(Game *game, ClientData *clientData) {
 
         Obs obs = ObsAt(seq, &game->worldGen);
         Point obsPositionPx = Camera_WorldPositionToScreen(
-            &game->camera, obs.x, obs.y, game->width, game->height);
+            &game->camera, obs.x, obs.y, game->screenWidthPixels, game->screenHeightPx);
         clientData->OBS_X_BUFFER[i] = obsPositionPx.x;
         clientData->OBS_Y_BUFFER[i] = obsPositionPx.y;
         clientData->OBS_RAD_BUFFER[i] =
