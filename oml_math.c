@@ -33,6 +33,14 @@ float OmlMath_Lerp(float lo, float hi, float unit) {
     return (hi - lo) * unit + lo;
 }
 
+float minFloat(float a, float b) {
+    return (a < b) ? a : b;
+}
+
+float maxFloat(float a, float b) {
+    return (a > b) ? a : b;
+}
+
 float OmlMath_Sinf(float f) {
 #ifdef OML_WASM
     return _oml_sinf(f);

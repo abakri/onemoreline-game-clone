@@ -17,6 +17,7 @@ typedef struct {
     float obsMaxRadius;
     float obsXMargin; // The minimum spacing to the left or right of an Obs
     float width;
+    float heroRad;
 } WorldGen;
 
 typedef struct {
@@ -58,7 +59,8 @@ typedef struct {
 } Game;
 
 void createGame(Game *game, int screenWidth, int screenHeight, uint32_t seed) {
-    float heroSpeed = 20.0f;       // DEFAULT HERO SPEED
+    float heroSpeed = 20.0f; // DEFAULT HERO SPEED
+    float heroRad = 0.3f;
     float gameWidthMeters = 10.0f; // DEFAULT GAME VALID AREA WIDTH
 
     *game = (Game){
@@ -74,6 +76,7 @@ void createGame(Game *game, int screenWidth, int screenHeight, uint32_t seed) {
                 .obsXMargin =
                     0.13f * gameWidthMeters, // for 7.2m width, this is 13%
                 .width = gameWidthMeters,
+                .heroRad = heroRad,
             },
         .minObsRadius = 0.2f,
         .maxObsRadius = 0.8f,
@@ -95,7 +98,7 @@ void createGame(Game *game, int screenWidth, int screenHeight, uint32_t seed) {
                 .y = 0,
                 .vx = 0,
                 .vy = heroSpeed,
-                .rad = 0.3,
+                .rad = heroRad,
             },
         .camera =
             (Camera){
@@ -125,6 +128,16 @@ Obs ObsAt(int i, WorldGen *w) {
     float minX = (w->width * -0.5f) + 1.f + rad;
     float maxX = (w->width * 0.5f) - 1.f - rad;
     float x = OmlMath_Lerp(minX, maxX, randomUnitForX);
+
+    // The first 3 obstacles may not be in the way of the hero in the center
+    // moving directly upwards
+    if (i <= 3) {
+        if (x < 0) {
+            x = minFloat(x, 0.f - w->heroRad - rad - 0.1);
+        } else {
+            x = maxFloat(x, w->heroRad + rad + 0.1);
+        }
+    }
 
     Obs obs = {
         .y = y,

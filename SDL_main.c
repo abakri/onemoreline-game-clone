@@ -82,12 +82,22 @@ int main(void) {
     int windowWidth = 1000;
     int windowHeight = 720;
 
+    // Some internal settings
+    int capFps = true;
+    int useVsync = true;
+
     if (!SDL_CreateWindowAndRenderer("OML", windowWidth, windowHeight, 0,
                                      &window, &renderer)) {
         SDL_Log("SDL_Init failed: %s", SDL_GetError());
         return 1;
     };
     SDL_RaiseWindow(window);
+    if (useVsync) {
+        if (!SDL_SetRenderVSync(renderer, 1)) {
+            SDL_Log("SDL_Init failed: %s", SDL_GetError());
+            return 1;
+        }
+    }
 
     // Init font rendering
     TTF_Init();
@@ -159,9 +169,11 @@ int main(void) {
 
         // now to hit our target fps we should sleep for (1000/targetFps) -
         // (frameEnd - frameStart)
-        int toWait = (int)((1000.0f / targetFps) - (frameEnd - frameStart));
-        if (toWait > 0) {
-            SDL_Delay(toWait);
+        if (capFps) {
+            int toWait = (int)((1000.0f / targetFps) - (frameEnd - frameStart));
+            if (toWait > 0) {
+                SDL_Delay(toWait);
+            }
         }
     }
 

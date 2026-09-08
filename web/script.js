@@ -72,7 +72,6 @@ function onAnimationFrame() {
   let avgDelta = deltaSum / frameRateHistorySize
   let currentRollingFramerate = Math.floor(avgDelta === 0 ? 0 : 1 / avgDelta)
   const message = document.getElementById("frame-rate")
-  console.log(currentRollingFramerate)
   message.textContent = `${currentRollingFramerate} fps`
 
   // Run the game loop
