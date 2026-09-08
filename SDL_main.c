@@ -2,16 +2,45 @@
 #include "game.c"
 #include "time.h"
 
+const int TEXTURE_BUFFER_SIZE = 0;
+const int CAT_TEXTURE_IDX = 0;
+
+// COLORS
+const int DARKEST_IDX = 0;
+const int DARK_IDX = 1;
+const int MID_IDX = 2;
+const int LIGHT_IDX = 3;
+const int LIGHTEST_IDX = 4;
+
+typedef struct {
+    Uint8 r;
+    Uint8 g;
+    Uint8 b;
+    Uint8 a;
+} Color;
+
 // TODO: A lot of the drawing here will likely be replaced with game assets
 void renderGame(SDL_Renderer *renderer, ClientData *clientData,
+                SDL_Texture *textureBuffer[1], Color colors[5],
                 TTF_Text *scoreTextObj) {
+    Color DARKEST = colors[DARKEST_IDX];
+    // Color DARK = colors[DARK_IDX];
+    // Color MID = colors[MID_IDX];
+    Color LIGHT = colors[LIGHT_IDX];
+    Color LIGHTEST = colors[LIGHTEST_IDX];
+
+    SDL_SetRenderDrawColor(renderer, DARKEST.r, DARKEST.g, DARKEST.b,
+                           DARKEST.a);
+    SDL_RenderClear(renderer);
+
     // Since state buffer is a float array, we must cast as int
     int screenHeight = (int)clientData->STATE_BUFFER[SCREEN_HEIGHT_IDX];
 
     // Draw boundaries on the left and right
     float leftBoundaryX = clientData->STATE_BUFFER[LEFT_BOUNDARY_X_IDX];
     float rightBoundaryX = clientData->STATE_BUFFER[RIGHT_BOUNDARY_X_IDX];
-    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // WHITE
+    SDL_SetRenderDrawColor(renderer, LIGHTEST.r, LIGHTEST.g, LIGHTEST.b,
+                           LIGHTEST.a);
     SDL_RenderLine(renderer, leftBoundaryX,
                    0, // top of screen
                    leftBoundaryX,
@@ -25,8 +54,15 @@ void renderGame(SDL_Renderer *renderer, ClientData *clientData,
     float heroX = clientData->STATE_BUFFER[HERO_X_IDX];
     float heroY = clientData->STATE_BUFFER[HERO_Y_IDX];
     float heroRad = clientData->STATE_BUFFER[HERO_RAD_IDX];
-    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // WHITE
-    Draw_DrawFilledCircle(renderer, heroX, heroY, heroRad);
+    // SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // WHITE
+    // Draw_DrawFilledCircle(renderer, heroX, heroY, heroRad);
+    SDL_FRect heroRect;
+    heroRect.x = heroX - heroRad;
+    heroRect.y = heroY - heroRad;
+    heroRect.w = 2 * heroRad;
+    heroRect.h = 2 * heroRad;
+    SDL_RenderTexture(renderer, textureBuffer[CAT_TEXTURE_IDX], NULL,
+                      &heroRect);
 
     // Draw orbit lines
     int stateSpaceDown = (int)clientData->STATE_BUFFER[SPACE_KEY_DOWN_IDX];
@@ -35,18 +71,21 @@ void renderGame(SDL_Renderer *renderer, ClientData *clientData,
     float closestObsY = clientData->STATE_BUFFER[CLOSEST_OBS_Y_IDX];
 
     if (stateSpaceDown && !isOrbiting) {
-        SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // RED
+        SDL_SetRenderDrawColor(renderer, LIGHT.r, LIGHT.g, LIGHT.b,
+                               LIGHT.a); // RED
         SDL_RenderLine(renderer, heroX, heroY, closestObsX, closestObsY);
     }
     if (isOrbiting) {
         float orbitX = clientData->STATE_BUFFER[ORBITING_X_IDX];
         float orbitY = clientData->STATE_BUFFER[ORBITING_Y_IDX];
-        SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // RED
+        SDL_SetRenderDrawColor(renderer, LIGHT.r, LIGHT.g, LIGHT.b,
+                               LIGHT.a); // RED
         SDL_RenderLine(renderer, heroX, heroY, orbitX, orbitY);
     }
 
     // Draw the obstacles
-    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // WHITE
+    SDL_SetRenderDrawColor(renderer, LIGHTEST.r, LIGHTEST.g, LIGHTEST.b,
+                           LIGHTEST.a);
     for (int i = 0; i < OBS_SOA_BUFFER_SIZE; i++) {
         float obsX = clientData->OBS_X_BUFFER[i];
         float obsY = clientData->OBS_Y_BUFFER[i];
@@ -99,6 +138,16 @@ int main(void) {
         }
     }
 
+    // Setup textures
+    SDL_Texture *textureBuffer[1];
+    SDL_Texture *catTexture =
+        IMG_LoadTexture(renderer, "./assets/sprites/cat.png");
+    if (!catTexture) {
+        SDL_Log("SDL_Init failed: %s", SDL_GetError());
+        return 1;
+    }
+    textureBuffer[CAT_TEXTURE_IDX] = catTexture;
+
     // Init font rendering
     TTF_Init();
     TTF_Font *font = TTF_OpenFont("./assets/Jersey10-Regular.ttf", 36.0f);
@@ -111,6 +160,19 @@ int main(void) {
     TTF_TextEngine *textEngine = TTF_CreateRendererTextEngine(renderer);
     TTF_Text *scoreTextObj =
         TTF_CreateText(textEngine, font, "Hello, world", 0);
+
+    // Create colors
+    Color colors[5];
+    // Darkest
+    colors[0] = (Color){.r = 55, .g = 33, .b = 52, .a = 255};
+    // Dark
+    colors[1] = (Color){.r = 71, .g = 69, .b = 118, .a = 255};
+    // Mid
+    colors[2] = (Color){.r = 72, .g = 136, .b = 183, .a = 255};
+    // Light
+    colors[3] = (Color){.r = 109, .g = 188, .b = 185, .a = 255};
+    // Lightest
+    colors[4] = (Color){.r = 140, .g = 239, .b = 182, .a = 255};
 
     // Generate world (seeded based on current time)
     time_t currentTime = time(NULL);
@@ -156,11 +218,9 @@ int main(void) {
 
         // ------- HANDLE GAME AND RENDER GRAPHICS -------
         // Black background
-        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
-        SDL_RenderClear(renderer);
         updateGame(&game, dt, spacePressed, SDL_GetTicks());
         updateClientData(&game, &clientData);
-        renderGame(renderer, &clientData, scoreTextObj);
+        renderGame(renderer, &clientData, textureBuffer, colors, scoreTextObj);
 
         // ------ END GAME AND RENDERING -------
         // End of frame processing
@@ -177,6 +237,7 @@ int main(void) {
         }
     }
 
+    SDL_DestroyTexture(catTexture);
     TTF_DestroyText(scoreTextObj);
     TTF_DestroyRendererTextEngine(textEngine);
     TTF_CloseFont(font);

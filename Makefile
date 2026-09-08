@@ -2,7 +2,7 @@ WASM_CC ?= /opt/homebrew/opt/llvm/bin/clang
 
 sdl: SDL_main.c
 	clang -DOML_SDL -std=c99 -Wall -Werror -Wfloat-conversion -pedantic \
-	  -o game SDL_main.c `pkg-config --cflags --libs sdl3 sdl3-ttf`
+	  -o game SDL_main.c `pkg-config --cflags --libs sdl3 sdl3-ttf sdl3-image`
 
 wasm: WASM_main.c
 	$(WASM_CC) -DOML_WASM -std=c99 -Wall -Werror -Wfloat-conversion -pedantic -fno-math-errno\
