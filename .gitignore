@@ -1,5 +1,5 @@
 libraylib.a
-sdl_main
+game
 .cache/
 web/game.wasm
 .DS_Store

@@ -285,11 +285,16 @@ void updateGame(Game *game, float timeSinceLastFrameSeconds,
         game->hero.y = game->currOrbit.centerY + currYRelativeToObs;
     }
 
-    // Handle not-orbiting specific logic
+    // Update hero positions for non-orbiting movement
     if (!game->isOrbiting) {
         // Update x and y
         game->hero.y += game->hero.vy * timeSinceLastFrameSeconds;
         game->hero.x += game->hero.vx * timeSinceLastFrameSeconds;
+    }
+
+    // Check for out of bounds game over only if there is not orbiting
+    // intent
+    if (!game->spaceDown && !game->isOrbiting) {
         // It's game over if we are not orbiting and we go out of bounds
         if (Physics_CheckCircleOutOfBoundsX(game->hero.x, game->hero.rad,
                                             leftVisibleBound,

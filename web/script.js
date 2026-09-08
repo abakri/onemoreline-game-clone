@@ -26,6 +26,12 @@ let startTimeMs = null
 let lastFrameTimeMs = null
 let isSpaceKeyDown = false
 
+// This is for calculating frame rate
+const FRAME_RATE_HISTORY_BUFFER_CAPACITY = 100;
+const frameRateHistory = new Float32Array(FRAME_RATE_HISTORY_BUFFER_CAPACITY);
+let frameRateHistorySize = 0;
+let frameRateHistoryWriteIndex = 0;
+
 // TODO: pointer events for phone too
 document.addEventListener("keydown", keyInput)
 document.addEventListener("keyup", keyInput)
@@ -54,6 +60,20 @@ function onAnimationFrame() {
 
   // finally, update last frame time
   lastFrameTimeMs = currentTimeMs;
+
+  // Update our frame rate counter
+  frameRateHistory[frameRateHistoryWriteIndex] = elapsedTimeSinceLastFrameSeconds
+  frameRateHistorySize = Math.min(frameRateHistorySize + 1, FRAME_RATE_HISTORY_BUFFER_CAPACITY)
+  frameRateHistoryWriteIndex = (frameRateHistoryWriteIndex + 1) % FRAME_RATE_HISTORY_BUFFER_CAPACITY
+  let deltaSum = 0
+  for (let i = 0; i < frameRateHistorySize; i++) {
+    deltaSum += frameRateHistory[i]
+  }
+  let avgDelta = deltaSum / frameRateHistorySize
+  let currentRollingFramerate = Math.floor(avgDelta === 0 ? 0 : 1 / avgDelta)
+  const message = document.getElementById("frame-rate")
+  console.log(currentRollingFramerate)
+  message.textContent = `${currentRollingFramerate} fps`
 
   // Run the game loop
   WASM.loop(
