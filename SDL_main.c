@@ -35,20 +35,49 @@ void renderGame(SDL_Renderer *renderer, ClientData *clientData,
 
     // Since state buffer is a float array, we must cast as int
     int screenHeight = (int)clientData->STATE_BUFFER[SCREEN_HEIGHT_IDX];
+    int screenWidth = (int)clientData->STATE_BUFFER[SCREEN_WIDTH_IDX];
 
     // Draw boundaries on the left and right
     float leftBoundaryX = clientData->STATE_BUFFER[LEFT_BOUNDARY_X_IDX];
     float rightBoundaryX = clientData->STATE_BUFFER[RIGHT_BOUNDARY_X_IDX];
     SDL_SetRenderDrawColor(renderer, LIGHTEST.r, LIGHTEST.g, LIGHTEST.b,
                            LIGHTEST.a);
-    SDL_RenderLine(renderer, leftBoundaryX,
-                   0, // top of screen
-                   leftBoundaryX,
-                   screenHeight // bottom of screen
-    );
-    SDL_RenderLine(renderer, rightBoundaryX,
-                   0, // top of screen
-                   rightBoundaryX, screenHeight);
+
+    float boundaryWidth = 15.f;
+    SDL_FRect leftBoundaryRect = (SDL_FRect){
+        .x = leftBoundaryX - boundaryWidth,
+        .y = 0, // top of screen
+        .w = boundaryWidth,
+        .h = screenHeight,
+    };
+    SDL_FRect rightBoundaryRect = (SDL_FRect){
+        .x = rightBoundaryX,
+        .y = 0, // top of screen
+        .w = boundaryWidth,
+        .h = screenHeight,
+    };
+    SDL_SetRenderDrawColor(renderer, LIGHTEST.r, LIGHTEST.g, LIGHTEST.b,
+                           LIGHTEST.a);
+    SDL_RenderFillRect(renderer, &leftBoundaryRect);
+    SDL_RenderFillRect(renderer, &rightBoundaryRect);
+
+    // Everything outside of the boundaries should be black
+    SDL_FRect leftOOBRect = (SDL_FRect){
+        .x = 0,
+        .y = 0, // top of screen
+        .w = leftBoundaryX - boundaryWidth,
+        .h = screenHeight,
+    };
+
+    SDL_FRect rightOOBRect = (SDL_FRect){
+        .x = rightBoundaryX + boundaryWidth,
+        .y = 0, // top of screen
+        .w = screenWidth - rightBoundaryX - boundaryWidth,
+        .h = screenHeight,
+    };
+    SDL_SetRenderDrawColor(renderer, 28, 13, 27, 255); // BLACK
+    SDL_RenderFillRect(renderer, &leftOOBRect);
+    SDL_RenderFillRect(renderer, &rightOOBRect);
 
     // Draw character
     float heroX = clientData->STATE_BUFFER[HERO_X_IDX];
