@@ -5,7 +5,7 @@
 
 #include "game.c"
 
-#define STATE_BUFFER_SIZE 18
+#define STATE_BUFFER_SIZE 25
 #define OBS_SOA_BUFFER_SIZE 20
 
 // STATE
@@ -27,6 +27,12 @@ const int RIGHT_BOUNDARY_X_IDX = 14;
 const int SCORE_IDX = 15;
 const int SCREEN_WIDTH_IDX = 16;
 const int SCREEN_HEIGHT_IDX = 17;
+const int HERO_ROTATION_DEGREES_IDX = 18;
+const int SCREEN_STATE_IDX = 19; // MENU = 0, GAME = 1
+const int PLAY_BTN_X_IDX = 20;
+const int PLAY_BTN_Y_IDX = 21;
+const int PLAY_BTN_WIDTH_IDX = 22;
+const int PLAY_BTN_HEIGHT_IDX = 23;
 
 typedef struct {
     float STATE_BUFFER[STATE_BUFFER_SIZE];
@@ -36,6 +42,14 @@ typedef struct {
 } ClientData;
 
 void updateClientData(Game *game, ClientData *clientData) {
+    // Update screen state
+    clientData->STATE_BUFFER[SCREEN_STATE_IDX] = game->screenState;
+    // Menu stuff
+    clientData->STATE_BUFFER[PLAY_BTN_X_IDX] = game->playButtonX;
+    clientData->STATE_BUFFER[PLAY_BTN_Y_IDX] = game->playButtonY;
+    clientData->STATE_BUFFER[PLAY_BTN_WIDTH_IDX] = game->playButtonWidth;
+    clientData->STATE_BUFFER[PLAY_BTN_HEIGHT_IDX] = game->playButtonHeight;
+
     // Populate screen width and height
     clientData->STATE_BUFFER[SCREEN_WIDTH_IDX] = game->screenWidthPx;
     clientData->STATE_BUFFER[SCREEN_HEIGHT_IDX] = game->screenHeightPx;
@@ -53,6 +67,10 @@ void updateClientData(Game *game, ClientData *clientData) {
     clientData->STATE_BUFFER[CAMERA_Y_IDX] = game->camera.y;
     clientData->STATE_BUFFER[PIXELS_PER_METER_IDX] =
         game->camera.pixelsPerMeter;
+
+    // Hero rotation
+    clientData->STATE_BUFFER[HERO_ROTATION_DEGREES_IDX] =
+        game->hero.rotationRadians * 180 / PI;
 
     // Add position of closest obs to hero in pixels
     Obs closestObsToHero =
@@ -129,4 +147,10 @@ void updateClientData(Game *game, ClientData *clientData) {
         clientData->OBS_RAD_BUFFER[i] =
             Camera_WorldMeasurementToScreen(&game->camera, obs.rad);
     }
+}
+
+void initClientData(Game *game, ClientData *clientData) {
+    updateClientData(game, clientData);
+    clientData->STATE_BUFFER[SCREEN_STATE_IDX] =
+        0; // set the state to be the menu
 }

@@ -14,6 +14,9 @@ extern float _oml_sqrtf(float);
 #include <math.h>
 #endif
 
+#define PI 3.14159f
+#define ROOT_2 1.414f
+
 unsigned int OmlMath_Hash(unsigned int seed, unsigned int i,
                           unsigned int salt) {
     unsigned int h = seed ^ (i * 0x9E3779B1u) ^ (salt * 0x85EBCA6Bu);

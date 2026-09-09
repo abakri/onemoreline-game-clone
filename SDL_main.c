@@ -4,6 +4,7 @@
 
 const int TEXTURE_BUFFER_SIZE = 0;
 const int CAT_TEXTURE_IDX = 0;
+const int BLACK_SQUARE_TEXTURE_IDX = 1;
 
 // COLORS
 const int DARKEST_IDX = 0;
@@ -18,6 +19,32 @@ typedef struct {
     Uint8 b;
     Uint8 a;
 } Color;
+
+// TODO: Use a UI framework like Clay or IMGUI
+void renderMenu(SDL_Renderer *renderer, ClientData *clientData, Color colors[5],
+                TTF_Text *playButtonText) {
+    Color DARKEST = colors[DARKEST_IDX];
+    // Color DARK = colors[DARK_IDX];
+    Color LIGHTEST = colors[LIGHTEST_IDX];
+
+    SDL_SetRenderDrawColor(renderer, DARKEST.r, DARKEST.g, DARKEST.b,
+                           DARKEST.a);
+    SDL_RenderClear(renderer);
+    SDL_FRect playButtonRect = (SDL_FRect){
+        .x = clientData->STATE_BUFFER[PLAY_BTN_X_IDX],
+        .y = clientData->STATE_BUFFER[PLAY_BTN_Y_IDX],
+        .w = clientData->STATE_BUFFER[PLAY_BTN_WIDTH_IDX],
+        .h = clientData->STATE_BUFFER[PLAY_BTN_HEIGHT_IDX],
+    };
+    SDL_SetRenderDrawColor(renderer, LIGHTEST.r, LIGHTEST.g, LIGHTEST.b,
+                           LIGHTEST.a);
+    SDL_RenderFillRect(renderer, &playButtonRect);
+
+    // Put text on the rect
+    TTF_DrawRendererText(playButtonText, playButtonRect.x, playButtonRect.y);
+
+    SDL_RenderPresent(renderer);
+}
 
 // TODO: A lot of the drawing here will likely be replaced with game assets
 void renderGame(SDL_Renderer *renderer, ClientData *clientData,
@@ -83,15 +110,19 @@ void renderGame(SDL_Renderer *renderer, ClientData *clientData,
     float heroX = clientData->STATE_BUFFER[HERO_X_IDX];
     float heroY = clientData->STATE_BUFFER[HERO_Y_IDX];
     float heroRad = clientData->STATE_BUFFER[HERO_RAD_IDX];
-    // SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // WHITE
-    // Draw_DrawFilledCircle(renderer, heroX, heroY, heroRad);
-    SDL_FRect heroRect;
-    heroRect.x = heroX - heroRad;
-    heroRect.y = heroY - heroRad;
-    heroRect.w = 2 * heroRad;
-    heroRect.h = 2 * heroRad;
-    SDL_RenderTexture(renderer, textureBuffer[CAT_TEXTURE_IDX], NULL,
-                      &heroRect);
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // WHITE
+    Draw_DrawFilledCircle(renderer, heroX, heroY, heroRad);
+
+    // Draw rect to show direction
+    SDL_FRect heroRect = {heroX - (heroRad / ROOT_2),
+                          heroY - (heroRad / ROOT_2), heroRad * ROOT_2,
+                          heroRad * ROOT_2};
+    SDL_SetRenderDrawColor(renderer, DARKEST.r, DARKEST.g, DARKEST.b,
+                           DARKEST.a); // RED
+    SDL_RenderTextureRotated(
+        renderer, textureBuffer[BLACK_SQUARE_TEXTURE_IDX], NULL, &heroRect,
+        clientData->STATE_BUFFER[HERO_ROTATION_DEGREES_IDX], NULL,
+        SDL_FLIP_NONE);
 
     // Draw orbit lines
     int stateSpaceDown = (int)clientData->STATE_BUFFER[SPACE_KEY_DOWN_IDX];
@@ -132,6 +163,7 @@ void renderGame(SDL_Renderer *renderer, ClientData *clientData,
     char str[20];
     snprintf(str, sizeof(str), "%d", forwardProgress);
 
+    // TODO: Measure the size and center on the button
     TTF_SetTextString(scoreTextObj, str, 0);
     TTF_DrawRendererText(scoreTextObj, 20, 20);
 
@@ -168,14 +200,20 @@ int main(void) {
     }
 
     // Setup textures
-    SDL_Texture *textureBuffer[1];
+    SDL_Texture *textureBuffer[2];
     SDL_Texture *catTexture =
         IMG_LoadTexture(renderer, "./assets/sprites/cat.png");
     if (!catTexture) {
         SDL_Log("SDL_Init failed: %s", SDL_GetError());
         return 1;
     }
-    textureBuffer[CAT_TEXTURE_IDX] = catTexture;
+    SDL_Texture *blackSquareTexture =
+        IMG_LoadTexture(renderer, "./assets/sprites/black_square.png");
+    if (!blackSquareTexture) {
+        SDL_Log("SDL_Init failed: %s", SDL_GetError());
+        return 1;
+    }
+    textureBuffer[BLACK_SQUARE_TEXTURE_IDX] = blackSquareTexture;
 
     // Init font rendering
     TTF_Init();
@@ -187,8 +225,9 @@ int main(void) {
 
     // Create font engine
     TTF_TextEngine *textEngine = TTF_CreateRendererTextEngine(renderer);
-    TTF_Text *scoreTextObj =
-        TTF_CreateText(textEngine, font, "Hello, world", 0);
+    TTF_Text *scoreText = TTF_CreateText(textEngine, font, "", 0);
+
+    TTF_Text *playButtonText = TTF_CreateText(textEngine, font, "Play", 4);
 
     // Create colors
     Color colors[5];
@@ -213,7 +252,7 @@ int main(void) {
 
     // Create client data
     ClientData clientData;
-    updateClientData(&game, &clientData);
+    initClientData(&game, &clientData);
 
     float targetFps = 200;
     int quit = 0;
@@ -245,11 +284,25 @@ int main(void) {
             }
         }
 
+        float mouseX;
+        float mouseY;
+        int mouseLeftDown =
+            SDL_BUTTON_MASK(SDL_GetMouseState(&mouseX, &mouseY));
+        MouseState mouseState = {
+            .x = mouseX, .y = mouseY, .leftDown = mouseLeftDown};
+
         // ------- HANDLE GAME AND RENDER GRAPHICS -------
         // Black background
-        updateGame(&game, dt, spacePressed, SDL_GetTicks());
+        updateGame(&game, dt, spacePressed, mouseState, SDL_GetTicks());
         updateClientData(&game, &clientData);
-        renderGame(renderer, &clientData, textureBuffer, colors, scoreTextObj);
+
+        switch ((int)clientData.STATE_BUFFER[SCREEN_STATE_IDX]) {
+        case 0:
+            renderMenu(renderer, &clientData, colors, playButtonText);
+            break;
+        default:
+            renderGame(renderer, &clientData, textureBuffer, colors, scoreText);
+        }
 
         // ------ END GAME AND RENDERING -------
         // End of frame processing
@@ -267,7 +320,7 @@ int main(void) {
     }
 
     SDL_DestroyTexture(catTexture);
-    TTF_DestroyText(scoreTextObj);
+    TTF_DestroyText(scoreText);
     TTF_DestroyRendererTextEngine(textEngine);
     TTF_CloseFont(font);
     TTF_Quit();

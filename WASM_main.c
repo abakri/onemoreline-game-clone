@@ -11,7 +11,7 @@ static ClientData clientData;
 WASM_EXPORT("init")
 int init(uint32_t seed, int windowWidth, int windowHeight) {
     createGame(&game, windowWidth, windowHeight, seed);
-    updateClientData(&game, &clientData);
+    initClientData(&game, &clientData);
     return 1;
 }
 

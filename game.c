@@ -9,6 +9,12 @@
 float PIXELS_PER_METER = 50.0f;
 
 typedef struct {
+    float x;
+    float y;
+    int leftDown;
+} MouseState;
+
+typedef struct {
     uint32_t seed;
     float obsStartingY;
     float obsAverageYDiff;
@@ -32,6 +38,7 @@ typedef struct {
     float vx;
     float vy;
     float rad;
+    float rotationRadians;
 } Hero;
 
 typedef struct {
@@ -50,12 +57,20 @@ typedef struct {
     float horizontalCameraMovement;
 
     // State of game
+    int screenState; // Menu = 0; Game = 1;
     bool gameOver;
     bool spaceDown;
     bool isOrbiting;
     Hero hero;
     OrbitData currOrbit;
     Camera camera;
+    MouseState mouseState;
+
+    // Menu state
+    float playButtonX;
+    float playButtonY;
+    float playButtonWidth;
+    float playButtonHeight;
 } Game;
 
 void createGame(Game *game, int screenWidth, int screenHeight, uint32_t seed) {
@@ -68,11 +83,11 @@ void createGame(Game *game, int screenWidth, int screenHeight, uint32_t seed) {
             (WorldGen){
                 .seed = seed,
                 .obsStartingY = 30.0f,
-                .obsAverageYDiff = 8.5f, // This shouldn't depend on anything
+                .obsAverageYDiff = 7.3f, // This shouldn't depend on anything
                 .obsYJitter = 1.75f,     // This shouldn't depend on anything
                 .obsMinRadius = 0.027f * gameWidthMeters,
                 .obsMaxRadius =
-                    0.11f * gameWidthMeters, // for 7.2m width, this is 11%
+                    0.09f * gameWidthMeters, // for 7.2m width, this is 11%
                 .obsXMargin =
                     0.13f * gameWidthMeters, // for 7.2m width, this is 13%
                 .width = gameWidthMeters,
@@ -99,6 +114,7 @@ void createGame(Game *game, int screenWidth, int screenHeight, uint32_t seed) {
                 .vx = 0,
                 .vy = heroSpeed,
                 .rad = heroRad,
+                .rotationRadians = 0,
             },
         .camera =
             (Camera){
@@ -207,12 +223,58 @@ void ObsRangeForYs(WorldGen *w, float yLo, float yHi, int *iLo, int *iHi) {
     *iHi = hi;
 }
 
+void handleMenu(Game *game, MouseState *mouseState) {
+    float playButtonHeight = 80.0f;
+    float playButtonWidth =
+        game->screenWidthPx < 150.0f ? game->screenWidthPx : 150.0f;
+
+    // menu button top left
+    float playButtonTopLeftX =
+        game->screenWidthPx / 2.0f - playButtonWidth / 2.0f;
+    float playButtonTopLeftY =
+        game->screenHeightPx / 2.0f - playButtonHeight / 2.0f;
+
+    // Update menu settings in game
+    // TODO: Maybe this belongs on the client building rather than game code?
+    // ... probably
+    game->playButtonWidth = playButtonWidth;
+    game->playButtonHeight = playButtonHeight;
+    game->playButtonX = playButtonTopLeftX;
+    game->playButtonY = playButtonTopLeftY;
+
+    // Now we check if the mouse clicks the rectangle
+    if (game->mouseState.x >= playButtonTopLeftX &&
+        game->mouseState.x < playButtonTopLeftX + playButtonWidth &&
+        game->mouseState.y >= playButtonTopLeftY &&
+        game->mouseState.y < playButtonTopLeftY + playButtonHeight &&
+        // IMPORTANT: Check if the mouse WAS NOT down in the last frame,
+        // BUT the mouse IS DOWN in the current frame
+        game->mouseState.leftDown != 1 && mouseState->leftDown == 1) {
+        game->screenState = 1; // TODO: Don't hardcode value
+        return;
+    }
+
+    // Update mouse state
+    // NOTE: We update mouse state at the end, because we are making decisions
+    // based on the PREVIOUS mouse state which is saved on the game.
+    game->mouseState.x = mouseState->x;
+    game->mouseState.y = mouseState->y;
+    game->mouseState.leftDown = mouseState->leftDown;
+}
+
 void updateGame(Game *game, float timeSinceLastFrameSeconds,
-                int spaceKeyPressed, int timeSinceStartMs) {
+                int spaceKeyPressed, MouseState mouseState,
+                int timeSinceStartMs) {
     // Clamp dt to our max dt. If dt comes back super high, then we can
     // experience tunneling.
     if (timeSinceLastFrameSeconds > MAX_DT) {
         timeSinceLastFrameSeconds = MAX_DT;
+    }
+
+    // If we are in the menu, then handle that and return early
+    if (game->screenState == 0) {
+        handleMenu(game, &mouseState);
+        return;
     }
 
     float leftBoundX = (game->worldGen.width / 2) * -1;
@@ -288,6 +350,9 @@ void updateGame(Game *game, float timeSinceLastFrameSeconds,
             currAngle, game->currOrbit.radius);
         float currXRelativeToObs = currPosRelativeToObs.x;
         float currYRelativeToObs = currPosRelativeToObs.y;
+
+        game->hero.rotationRadians =
+            OmlMath_Atan2f(currXRelativeToObs, currYRelativeToObs) + PI;
 
         // Update hero.vx and charSpeedY based on its current angle
         game->hero.vx = -(game->currOrbit.direction) * game->speed *
