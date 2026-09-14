@@ -16,15 +16,27 @@ const RIGHT_BOUNDARY_X_IDX = 14;
 const SCORE_IDX = 15;
 const SCREEN_WIDTH_IDX = 16;
 const SCREEN_HEIGHT_IDX = 17;
+const HERO_ROTATION_DEGREES_IDX = 18;
+const SCREEN_STATE_IDX = 19; // MENU = 0, GAME = 1
+const PLAY_BTN_X_IDX = 20;
+const PLAY_BTN_Y_IDX = 21;
+const PLAY_BTN_WIDTH_IDX = 22;
+const PLAY_BTN_HEIGHT_IDX = 23;
 
 let CANVAS = null
 let CTX = null
 let WASM = null
 let MEMORY = {}
 
+// math constants
+const ROOT_2 = 1.414;
+
 let startTimeMs = null
 let lastFrameTimeMs = null
 let isSpaceKeyDown = false
+let mouseX = 0.0
+let mouseY = 0.0
+let mouseLeftDown = 0
 
 // This is for calculating frame rate
 const FRAME_RATE_HISTORY_BUFFER_CAPACITY = 100;
@@ -37,6 +49,10 @@ document.addEventListener("keydown", keyInput)
 document.addEventListener("keyup", keyInput)
 document.addEventListener("pointerdown", keyInput)
 document.addEventListener("pointerup", keyInput)
+document.addEventListener("mousemove", mouseInput)
+document.addEventListener("mousedown", mouseInput)
+document.addEventListener("mouseup", mouseInput)
+document.addEventListener("mouseup", mouseInput)
 
 function keyInput(event) {
   if (event.repeat) return event.preventDefault() // Ignore repeat keystrokes
@@ -52,35 +68,50 @@ function keyInput(event) {
   }
 }
 
-function onAnimationFrame() {
-  currentTimeMs = performance.now();
-  elapsedTimeSinceStartMs = currentTimeMs - startTimeMs;
-  // the amount of seconds since the last frame
-  elapsedTimeSinceLastFrameSeconds = (currentTimeMs - lastFrameTimeMs) / 1000.0
-
-  // finally, update last frame time
-  lastFrameTimeMs = currentTimeMs;
-
-  // Update our frame rate counter
-  frameRateHistory[frameRateHistoryWriteIndex] = elapsedTimeSinceLastFrameSeconds
-  frameRateHistorySize = Math.min(frameRateHistorySize + 1, FRAME_RATE_HISTORY_BUFFER_CAPACITY)
-  frameRateHistoryWriteIndex = (frameRateHistoryWriteIndex + 1) % FRAME_RATE_HISTORY_BUFFER_CAPACITY
-  let deltaSum = 0
-  for (let i = 0; i < frameRateHistorySize; i++) {
-    deltaSum += frameRateHistory[i]
+function mouseInput(event) {
+  if (CANVAS === null) { // If not instantiated, return early
+    return
   }
-  let avgDelta = deltaSum / frameRateHistorySize
-  let currentRollingFramerate = Math.floor(avgDelta === 0 ? 0 : 1 / avgDelta)
-  const message = document.getElementById("frame-rate")
-  message.textContent = `${currentRollingFramerate} fps`
+  canvasRect = CANVAS.getBoundingClientRect()
+  if (event.type === "mousemove") {
+    mouseX = event.clientX - canvasRect.x
+    mouseY = event.clientY - canvasRect.y
+  }
+  else if (event.type === "mousedown") {
+    mouseLeftDown = 1;
+  }
+  else if (event.type === "mouseup") {
+    mouseLeftDown = 0;
+  }
+}
 
-  // Run the game loop
-  WASM.loop(
-    elapsedTimeSinceLastFrameSeconds,
-    elapsedTimeSinceStartMs,
-    isSpaceKeyDown,
+function renderMenu() {
+  const playBtnX = MEMORY.STATE_BUFFER[PLAY_BTN_X_IDX]
+  const playBtnY = MEMORY.STATE_BUFFER[PLAY_BTN_Y_IDX]
+  const playBtnW = MEMORY.STATE_BUFFER[PLAY_BTN_WIDTH_IDX]
+  const playBtnH = MEMORY.STATE_BUFFER[PLAY_BTN_HEIGHT_IDX]
+  const screenWidth = MEMORY.STATE_BUFFER[SCREEN_WIDTH_IDX] | 0
+  const screenHeight = MEMORY.STATE_BUFFER[SCREEN_HEIGHT_IDX] | 0
+
+  CTX.clearRect(0, 0, screenWidth, screenHeight)
+  CTX.clearRect(0, 0, screenWidth, screenHeight)
+  CTX.fillStyle = "#000000" // BLACK
+  CTX.fillRect(0, 0, screenWidth, screenHeight)
+
+  CTX.fillStyle = "#ffffff" // WHITE
+  CTX.fillRect(
+    playBtnX,
+    playBtnY,
+    playBtnW,
+    playBtnH,
   )
 
+  CTX.fillStyle = "#000000"
+  CTX.font = "24px Arial";
+  CTX.fillText("start", playBtnX + 45, playBtnY + 40);
+}
+
+function renderGame() {
   const screenWidth = MEMORY.STATE_BUFFER[SCREEN_WIDTH_IDX] | 0
   const screenHeight = MEMORY.STATE_BUFFER[SCREEN_HEIGHT_IDX] | 0
 
@@ -114,6 +145,19 @@ function onAnimationFrame() {
   CTX.arc(heroX, heroY, heroRad, 0, 2 * Math.PI)
   CTX.fillStyle = "#ffffff"
   CTX.fill()
+
+  // Draw rect to show direction
+  const rotationDeg = MEMORY.STATE_BUFFER[HERO_ROTATION_DEGREES_IDX]
+  const rotSide = heroRad * ROOT_2
+
+  // Need to rotate the entire canvas first, draw the rect, then restore
+  CTX.save()
+  CTX.translate(heroX, heroY)
+  CTX.rotate((rotationDeg * Math.PI) / 180)
+  CTX.fillStyle = "#000000" // black
+  CTX.fillRect(rotSide * -1 / 2, rotSide * -1 / 2, rotSide, rotSide)
+  CTX.restore()
+
 
   // Draw orbit lines
   // This properly interprets the 32 bit information as a signed int
@@ -158,18 +202,61 @@ function onAnimationFrame() {
 
   // Draw score
   const score = MEMORY.STATE_BUFFER[SCORE_IDX] | 0;
-  CTX.font = "24px serif";
-  CTX.fillText(score.toString(), 20, 35);
+  CTX.font = "24px Arial";
+  CTX.fillText(score.toString(), 90, 40);
+}
 
-  const gameOver = MEMORY.STATE_BUFFER[GAME_OVER_IDX]
-  if (!gameOver) {
-    window.requestAnimationFrame(onAnimationFrame)
-  } else {
-    // On gameover, update the text
-    // TODO: make this better UX
-    const message = document.getElementById("message");
-    message.textContent = "Game over! :(";
+function runGame() {
+  currentTimeMs = performance.now();
+  elapsedTimeSinceStartMs = currentTimeMs - startTimeMs;
+  // the amount of seconds since the last frame
+  elapsedTimeSinceLastFrameSeconds = (currentTimeMs - lastFrameTimeMs) / 1000.0
+
+  // finally, update last frame time
+  lastFrameTimeMs = currentTimeMs;
+
+  // Update our frame rate counter
+  frameRateHistory[frameRateHistoryWriteIndex] = elapsedTimeSinceLastFrameSeconds
+  frameRateHistorySize = Math.min(frameRateHistorySize + 1, FRAME_RATE_HISTORY_BUFFER_CAPACITY)
+  frameRateHistoryWriteIndex = (frameRateHistoryWriteIndex + 1) % FRAME_RATE_HISTORY_BUFFER_CAPACITY
+  let deltaSum = 0
+  for (let i = 0; i < frameRateHistorySize; i++) {
+    deltaSum += frameRateHistory[i]
   }
+  let avgDelta = deltaSum / frameRateHistorySize
+  let currentRollingFramerate = Math.floor(avgDelta === 0 ? 0 : 1 / avgDelta)
+  const message = document.getElementById("frame-rate")
+  message.textContent = `${currentRollingFramerate} fps`
+
+  // Run the game loop
+  WASM.loop(
+    elapsedTimeSinceLastFrameSeconds,
+    elapsedTimeSinceStartMs,
+    mouseX,
+    mouseY,
+    mouseLeftDown,
+    isSpaceKeyDown,
+  )
+
+  // Decide what to render
+  const screenState = MEMORY.STATE_BUFFER[SCREEN_STATE_IDX] | 0
+  if (screenState === 0) {
+    renderMenu()
+  } else if (screenState === 1) {
+    const gameOver = MEMORY.STATE_BUFFER[GAME_OVER_IDX]
+    if (!gameOver) {
+      renderGame()
+    } else {
+      // On gameover, update the text
+      // TODO: make this better UX
+      const message = document.getElementById("message");
+      message.textContent = "Game over! :(";
+    }
+  } else {
+    throw Error("Invalid screen state")
+  }
+
+  requestAnimationFrame(runGame)
 }
 
 async function startGame() {
@@ -183,55 +270,59 @@ async function startGame() {
     }
   }
 
+  let instance = null
+
   try {
-    const { instance } = await WebAssembly.instantiateStreaming(
+    const wasmFetch = await WebAssembly.instantiateStreaming(
       fetch("game.wasm"),
       importObject
     )
-
-    WASM = instance.exports
-
-    // We need to get the canvas width and height to pass to wasm
-    CANVAS = document.getElementById("game")
-    CTX = CANVAS.getContext('2d')
-
-    const uint32Epoch = Math.floor(Date.now() / 1000) >>> 0
-
-    WASM.init(
-      uint32Epoch, // seed
-      CANVAS.width, // game width pixels
-      CANVAS.height, // game height pixels
-    )
-
-    // TODO: export buffer sizes from wasm 
-    MEMORY.STATE_BUFFER = new Float32Array(
-      WASM.memory.buffer,
-      WASM.stateBufferPointer(),
-      WASM.stateBufferSize(),
-    );
-    MEMORY.OBS_X_BUFFER = new Float32Array(
-      WASM.memory.buffer,
-      WASM.obsXBufferPointer(),
-      WASM.obsBufferSize(),
-    );
-    MEMORY.OBS_Y_BUFFER = new Float32Array(
-      WASM.memory.buffer,
-      WASM.obsYBufferPointer(),
-      WASM.obsBufferSize(),
-    );
-    MEMORY.OBS_RAD_BUFFER = new Float32Array(
-      WASM.memory.buffer,
-      WASM.obsRadBufferPointer(),
-      WASM.obsBufferSize(),
-    );
-
-    startTimeMs = performance.now();
-    lastFrameTimeMs = performance.now();
-    requestAnimationFrame(onAnimationFrame)
+    instance = wasmFetch.instance
   } catch (e) {
     console.error("Could not fetch wasm")
     console.log(e)
   }
-}
 
+
+  WASM = instance.exports
+
+  // We need to get the canvas width and height to pass to wasm
+  CANVAS = document.getElementById("game")
+  CTX = CANVAS.getContext('2d')
+
+  const uint32Epoch = Math.floor(Date.now() / 1000) >>> 0
+
+  WASM.init(
+    uint32Epoch, // seed
+    CANVAS.width, // game width pixels
+    CANVAS.height, // game height pixels
+  )
+
+  // TODO: export buffer sizes from wasm 
+  MEMORY.STATE_BUFFER = new Float32Array(
+    WASM.memory.buffer,
+    WASM.stateBufferPointer(),
+    WASM.stateBufferSize(),
+  );
+  MEMORY.OBS_X_BUFFER = new Float32Array(
+    WASM.memory.buffer,
+    WASM.obsXBufferPointer(),
+    WASM.obsBufferSize(),
+  );
+  MEMORY.OBS_Y_BUFFER = new Float32Array(
+    WASM.memory.buffer,
+    WASM.obsYBufferPointer(),
+    WASM.obsBufferSize(),
+  );
+  MEMORY.OBS_RAD_BUFFER = new Float32Array(
+    WASM.memory.buffer,
+    WASM.obsRadBufferPointer(),
+    WASM.obsBufferSize(),
+  );
+
+  startTimeMs = performance.now();
+  lastFrameTimeMs = performance.now();
+
+  requestAnimationFrame(runGame)
+}
 startGame()

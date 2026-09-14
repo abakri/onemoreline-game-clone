@@ -1,18 +1,42 @@
 [
-  {
-    "file": "main.c",
-    "arguments": [
-      "/usr/bin/clang",
-      "-std=c99",
-      "-Wall",
-      "-Werror",
-      "-DOML_SDL",
-      "SDL_main.c",
-      "-o",
-      "sdl_main",
-      "-I/opt/homebrew/include"
-    ],
-    "directory": "/Users/aslan/personal/onemoreline",
-    "output": "sdl_main"
-  }
+    {
+        "file": "SDL_main.c",
+        "arguments": [
+            "/usr/bin/clang",
+            "-std=c99",
+            "-Wall",
+            "-Werror",
+            "-DOML_SDL",
+            "SDL_main.c",
+            "-o",
+            "sdl_main",
+            "-I/opt/homebrew/include"
+        ],
+        "directory": "/Users/aslan/personal/onemoreline",
+        "output": "sdl_main"
+    },
+    {
+        "file": "WASM_main.c",
+        "arguments": [
+            "/opt/homebrew/opt/llvm/bin/clang",
+            "-DOML_WASM",
+            "-std=c99",
+            "-Wall",
+            "-Werror",
+            "-Wfloat-conversion",
+            "-pedantic",
+            "-fno-math-errno",
+            "--target=wasm32",
+            "-Os",
+            "-nostdlib",
+            "-mbulk-memory",
+            "-Wl,--no-entry",
+            "-Wl,--export-all",
+            "-o",
+            "-web/game.wasm",
+            "WASM_main.c"
+        ],
+        "directory": "/Users/aslan/personal/onemoreline",
+        "output": "./web/game.wasm"
+    }
 ]

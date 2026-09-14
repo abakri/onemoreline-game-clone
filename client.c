@@ -114,7 +114,7 @@ void updateClientData(Game *game, ClientData *clientData) {
     clientData->STATE_BUFFER[RIGHT_BOUNDARY_X_IDX] = rightScreenPixelsX;
 
     // Add score which is just the hero's y in meters
-    clientData->STATE_BUFFER[SCORE_IDX] = game->hero.y;
+    clientData->STATE_BUFFER[SCORE_IDX] = (float)((int)(game->hero.y / 4));
 
     // ----- UPDATE THE OBS BUFFERS
     float screenHeightToWorld =
