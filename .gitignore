@@ -1,5 +1,4 @@
 libraylib.a
 game
 .cache/
-web/game.wasm
 .DS_Store
